@@ -1,0 +1,22 @@
+{
+  "name": "COAST — metal works",
+  "short_name": "COAST",
+  "description": "Field app for coastal metal fabrication",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F1E9",
+  "theme_color": "#CB5530",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

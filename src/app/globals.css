@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #17181b;
+  --bone: #f4f1e9;
+  --paper: #fbf9f3;
+  --graph: #6c6e73;
+  --rule: #dbd7cb;
+  --weld: #cb5530;
+}
+
+.dark {
+  --ink: #f0ede5;
+  --bone: #15161a;
+  --paper: #1c1d21;
+  --graph: #9a9ca1;
+  --rule: #2e2f34;
+  --weld: #e0673c;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-bone: var(--bone);
+  --color-paper: var(--paper);
+  --color-graph: var(--graph);
+  --color-rule: var(--rule);
+  --color-weld: var(--weld);
+  --font-display: var(--font-oswald);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-sans: var(--font-oswald);
+}
+
+body {
+  background: var(--bone);
+  color: var(--ink);
+}
+
+.font-display {
+  font-family: var(--font-oswald), sans-serif;
+}
+
+.font-mono {
+  font-family: var(--font-jetbrains-mono), monospace;
+}
