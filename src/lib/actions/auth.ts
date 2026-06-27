@@ -99,21 +99,39 @@ async function ensureSeedAccountReady(account: SeedAccount) {
 export async function signIn(formData: FormData) {
   const supabase = await createClient();
 
-  const email = (formData.get("email") as string).trim().toLowerCase();
-  const password = formData.get("password") as string;
-  const seedAccount = resolveSeedAccount(email, password);
+  const email = (formData.get("email") as string | null)?.trim().toLowerCase();
+  const password = (formData.get("password") as string | null) ?? "";
 
-  if (seedAccount) {
-    await ensureSeedAccountReady(seedAccount);
+  const redirectWithError = (message: string) => {
+    redirect(`/login?error=${encodeURIComponent(message)}`);
+  };
+
+  if (!email || !password) {
+    redirectWithError("Enter email and password.");
   }
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  const seedAccount = resolveSeedAccount(email, password);
 
-  if (error) {
-    throw new Error(error.message);
+  if (seedAccount && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      await ensureSeedAccountReady(seedAccount);
+    } catch (error) {
+      console.error("Failed to bootstrap configured account", error);
+      redirectWithError("Account setup failed. Please try again.");
+    }
+  }
+
+  try {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) {
+      redirectWithError("Invalid email or password.");
+    }
+  } catch (error) {
+    console.error("Sign-in request failed", error);
+    redirectWithError("Sign in failed. Please try again.");
   }
 
   redirect("/projects");
