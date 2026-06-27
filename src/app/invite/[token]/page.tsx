@@ -1,5 +1,3 @@
-import { InviteAcceptForm } from "@/components/invite-form";
-
 export default async function InvitePage({
   params,
 }: {
@@ -18,7 +16,12 @@ export default async function InvitePage({
         </div>
 
         <div className="rounded border border-rule bg-paper p-6">
-          <InviteAcceptForm token={token} />
+          <p className="text-sm text-graph">
+            Invite activation is disabled in the free deployment profile.
+          </p>
+          <p className="mt-2 break-all font-mono text-xs text-graph/80">
+            token: {token}
+          </p>
         </div>
       </div>
     </div>

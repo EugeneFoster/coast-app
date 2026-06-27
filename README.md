@@ -34,6 +34,9 @@ npm run preview   # local Workers preview
 npm run deploy    # deploy to Cloudflare
 ```
 
+`npm run deploy` uses Wrangler minification to fit Cloudflare free-tier Worker size limits.
+The free-tier profile currently disables employee invitation activation flows (`/settings/employees` and `/invite/[token]`).
+
 Connect the GitHub repo in Cloudflare → **Workers & Pages → Workers Builds**:
 
 - Build command: `npx opennextjs-cloudflare build`

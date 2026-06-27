@@ -1,5 +1,4 @@
 import { requireUser } from "@/lib/auth";
-import Link from "next/link";
 
 export default async function SettingsPage() {
   const { profile } = await requireUser();
@@ -28,15 +27,12 @@ export default async function SettingsPage() {
         </div>
 
         {(profile.role === "owner" || profile.role === "draftsperson") && (
-          <Link
-            href="/settings/employees"
-            className="block rounded border border-rule bg-paper p-6 transition-colors hover:border-ink/30"
-          >
+          <div className="rounded border border-rule bg-paper p-6">
             <h2 className="text-sm font-medium text-ink">Employees</h2>
             <p className="mt-1 text-sm text-graph">
-              Invite and manage team members
+              Employee management is disabled in the free deployment profile.
             </p>
-          </Link>
+          </div>
         )}
       </div>
     </div>
