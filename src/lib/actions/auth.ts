@@ -100,17 +100,18 @@ export async function signIn(formData: FormData) {
   const supabase = await createClient();
 
   const email = (formData.get("email") as string | null)?.trim().toLowerCase();
+  const safeEmail = email ?? "";
   const password = (formData.get("password") as string | null) ?? "";
 
-  const redirectWithError = (message: string) => {
+  const redirectWithError = (message: string): never => {
     redirect(`/login?error=${encodeURIComponent(message)}`);
   };
 
-  if (!email || !password) {
+  if (!safeEmail || !password) {
     redirectWithError("Enter email and password.");
   }
 
-  const seedAccount = resolveSeedAccount(email, password);
+  const seedAccount = resolveSeedAccount(safeEmail, password);
 
   if (seedAccount && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
@@ -123,7 +124,7 @@ export async function signIn(formData: FormData) {
 
   try {
     const { error } = await supabase.auth.signInWithPassword({
-      email,
+      email: safeEmail,
       password,
     });
     if (error) {
