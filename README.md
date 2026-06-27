@@ -40,7 +40,7 @@ The free-tier profile currently disables employee invitation activation flows (`
 Connect the GitHub repo in Cloudflare → **Workers & Pages → Workers Builds**:
 
 - Build command: `npx opennextjs-cloudflare build`
-- Deploy command: `npx opennextjs-cloudflare deploy`
+- Deploy command: `npx opennextjs-cloudflare deploy --minify`
 
 Add all env vars under **Build variables and secrets**.
 
