@@ -97,8 +97,6 @@ async function ensureSeedAccountReady(account: SeedAccount) {
 }
 
 export async function signIn(formData: FormData) {
-  const supabase = await createClient();
-
   const email = (formData.get("email") as string | null)?.trim().toLowerCase();
   const safeEmail = email ?? "";
   const password = (formData.get("password") as string | null) ?? "";
@@ -123,6 +121,7 @@ export async function signIn(formData: FormData) {
   }
 
   try {
+    const supabase = await createClient();
     const { error } = await supabase.auth.signInWithPassword({
       email: safeEmail,
       password,
@@ -132,7 +131,9 @@ export async function signIn(formData: FormData) {
     }
   } catch (error) {
     console.error("Sign-in request failed", error);
-    redirectWithError("Sign in failed. Please try again.");
+    redirectWithError(
+      "Sign in failed. Check Supabase URL/ANON key and try again.",
+    );
   }
 
   redirect("/projects");
