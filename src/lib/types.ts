@@ -53,6 +53,17 @@ export interface Drawing {
   created_at: string;
 }
 
+export type MediaType = "photo" | "video";
+
+export interface GalleryItem {
+  id: string;
+  project_id: string;
+  file_path: string;
+  media_type: MediaType;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
 export interface ProjectMember {
   project_id: string;
   profile_id: string;

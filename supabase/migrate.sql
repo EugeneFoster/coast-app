@@ -45,6 +45,101 @@ begin
   end if;
 end $$;
 
+-- Project gallery (photos + videos uploaded by the team).
+create table if not exists public.gallery_items (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid references public.projects(id) on delete cascade,
+  file_path   text not null,
+  media_type  text not null check (media_type in ('photo', 'video')),
+  uploaded_by uuid references public.profiles(id),
+  created_at  timestamptz not null default now()
+);
+
+alter table public.gallery_items enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'gallery_items' and policyname = 'gallery_read'
+  ) then
+    create policy gallery_read on public.gallery_items for select using (
+      public.is_admin()
+      or exists (
+        select 1 from public.project_members m
+        where m.project_id = gallery_items.project_id and m.profile_id = auth.uid()
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'gallery_items' and policyname = 'gallery_insert'
+  ) then
+    create policy gallery_insert on public.gallery_items for insert with check (
+      uploaded_by = auth.uid()
+      and (
+        public.is_admin()
+        or exists (
+          select 1 from public.project_members m
+          where m.project_id = gallery_items.project_id and m.profile_id = auth.uid()
+        )
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'gallery_items' and policyname = 'gallery_delete'
+  ) then
+    create policy gallery_delete on public.gallery_items for delete using (
+      public.is_admin() or uploaded_by = auth.uid()
+    );
+  end if;
+end $$;
+
+-- Private gallery storage bucket.
+insert into storage.buckets (id, name, public)
+values ('project-gallery', 'project-gallery', false)
+on conflict (id) do nothing;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'gallery_obj_read'
+  ) then
+    create policy gallery_obj_read on storage.objects for select to authenticated using (
+      bucket_id = 'project-gallery'
+      and (
+        public.is_admin()
+        or exists (
+          select 1 from public.project_members m
+          where m.profile_id = auth.uid()
+            and m.project_id::text = (storage.foldername(name))[1]
+        )
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects' and policyname = 'gallery_obj_write'
+  ) then
+    create policy gallery_obj_write on storage.objects for insert to authenticated with check (
+      bucket_id = 'project-gallery'
+      and (
+        public.is_admin()
+        or exists (
+          select 1 from public.project_members m
+          where m.profile_id = auth.uid()
+            and m.project_id::text = (storage.foldername(name))[1]
+        )
+      )
+    );
+  end if;
+end $$;
+
 -- Demo data: only when the project table is still empty.
 do $$
 declare
