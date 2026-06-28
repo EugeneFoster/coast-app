@@ -4,11 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import type { Profile } from "@/lib/types";
-import { signOut } from "@/lib/actions/projects";
+import { signOut } from "@/lib/actions/session";
 
-const navItems = [
+const navItems: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: "/projects", label: "Projects" },
-  { href: "/settings/employees", label: "Employees", adminOnly: true },
   { href: "/settings", label: "Settings" },
 ];
 

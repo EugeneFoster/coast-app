@@ -1,8 +1,14 @@
 import { signIn } from "@/lib/actions/auth";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
+
   return (
-    <div className="flex min-h-full items-center justify-center bg-bone px-4">
+    <div className="flex min-h-screen items-center justify-center bg-bone px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <p className="font-display text-3xl font-semibold tracking-wide uppercase text-ink">
@@ -15,6 +21,11 @@ export default function LoginPage() {
           action={signIn}
           className="rounded border border-rule bg-paper p-6 space-y-4"
         >
+          {error && (
+            <p className="rounded border border-weld/40 bg-weld/10 px-3 py-2 text-sm text-weld">
+              {error}
+            </p>
+          )}
           <div>
             <label htmlFor="email" className="block text-sm text-ink">
               Email

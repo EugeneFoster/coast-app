@@ -2,6 +2,11 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 
 export default async function Home() {
-  const user = await getSession();
+  let user = null;
+  try {
+    user = await getSession();
+  } catch {
+    // If auth backend is temporarily unavailable, fall back to login route.
+  }
   redirect(user ? "/projects" : "/login");
 }

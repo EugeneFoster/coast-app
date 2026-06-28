@@ -6,12 +6,6 @@ import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { ProjectStatus } from "@/lib/types";
 
-export async function signOut() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
-  redirect("/login");
-}
-
 export async function createProject(formData: FormData) {
   await requireAdmin();
   const supabase = await createClient();

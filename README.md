@@ -34,12 +34,37 @@ npm run preview   # local Workers preview
 npm run deploy    # deploy to Cloudflare
 ```
 
+`npm run deploy` uses Wrangler minification to fit Cloudflare free-tier Worker size limits.
+The free-tier profile currently disables employee invitation activation flows (`/settings/employees` and `/invite/[token]`).
+
 Connect the GitHub repo in Cloudflare → **Workers & Pages → Workers Builds**:
 
 - Build command: `npx opennextjs-cloudflare build`
-- Deploy command: `npx opennextjs-cloudflare deploy`
+- Deploy command: `npx opennextjs-cloudflare deploy --minify`
 
 Add all env vars under **Build variables and secrets**.
+
+### Deploy via GitHub Actions (no manual Cloudflare UI env input)
+
+This repository includes `.github/workflows/deploy-cloudflare.yml`.
+
+- Push to `main` to deploy automatically.
+- Or run **Actions → Deploy Cloudflare Worker → Run workflow**.
+
+Required repository secrets:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Optional repository secrets (for auto-bootstrap logins):
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_LOGIN`
+- `ADMIN_PASSWORD`
+- `DRAW_LOGIN`
+- `DRAW_PASSWORD`
 
 ## Roles
 
