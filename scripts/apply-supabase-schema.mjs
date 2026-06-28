@@ -1,7 +1,16 @@
+import dns from "node:dns";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
+// GitHub Actions runners have no IPv6 route. Supabase pooler hosts expose both
+// A and AAAA records, so force IPv4 to avoid ENETUNREACH.
+dns.setDefaultResultOrder("ipv4first");
+
 const require = createRequire(import.meta.url);
+
+function ipv4Lookup(hostname, options, callback) {
+  return dns.lookup(hostname, { ...options, family: 4 }, callback);
+}
 
 // Supabase Supavisor pooler regions (IPv4 reachable from GitHub Actions).
 const POOLER_REGIONS = [
@@ -65,6 +74,7 @@ function buildPoolerCandidates(ref, password) {
         ssl: { rejectUnauthorized: false },
         connectionTimeoutMillis: 8000,
         query_timeout: 60000,
+        lookup: ipv4Lookup,
       });
     }
   }
@@ -107,6 +117,7 @@ async function connectDirect(ref, password) {
     ssl: { rejectUnauthorized: false },
     connectionTimeoutMillis: 8000,
     query_timeout: 60000,
+    lookup: ipv4Lookup,
   };
   const client = new Client(config);
   await client.connect();
