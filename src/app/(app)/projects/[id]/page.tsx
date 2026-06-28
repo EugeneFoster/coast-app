@@ -31,6 +31,7 @@ export default async function ProjectPage({
   const admin = isAdmin(profile);
 
   const supabase = await createClient();
+  const adminClient = createAdminClient();
   const { data: project } = await supabase
     .from("projects")
     .select("*, clients(id, name)")
@@ -54,15 +55,15 @@ export default async function ProjectPage({
 
   const assignedIds = new Set(members?.map((m) => m.profile_id) ?? []);
 
+  // select("*") stays resilient if the status/version columns aren't migrated yet.
   const { data: drawings } = await supabase
     .from("drawings")
-    .select("id, file_path, original_name")
+    .select("*")
     .eq("project_id", id)
     .order("created_at");
 
   // Gallery is read with the service role (access already gated by the project
   // fetch above), so no per-table read policy is required.
-  const adminClient = createAdminClient();
   const { data: galleryRows } = await adminClient
     .from("gallery_items")
     .select("id, file_path, media_type, profiles:uploaded_by(full_name, login)")
@@ -83,21 +84,60 @@ export default async function ProjectPage({
     modelUrl = signed?.signedUrl ?? null;
   }
 
-  // Drawings (private bucket → signed URLs, rendered inline)
-  let drawingLinks: { name: string; url: string }[] = [];
-  if (drawings && drawings.length > 0) {
+  // Drawings → deep-zoom viewer files (pages from drawing_pages, PDF fallback).
+  type DrawingRow = {
+    id: string;
+    file_path: string;
+    original_name: string | null;
+    status: string | null;
+    version: number | null;
+    page_count: number | null;
+  };
+  const drawingRows = (drawings ?? []) as DrawingRow[];
+
+  let pagesByDrawing = new Map<
+    string,
+    { pageNo: number; width: number; height: number }[]
+  >();
+  if (drawingRows.length > 0) {
+    const { data: pageRows } = await adminClient
+      .from("drawing_pages")
+      .select("drawing_id, page_no, width, height")
+      .in(
+        "drawing_id",
+        drawingRows.map((d) => d.id),
+      )
+      .order("page_no");
+    pagesByDrawing = (pageRows ?? []).reduce((map, r) => {
+      const list = map.get(r.drawing_id) ?? [];
+      list.push({ pageNo: r.page_no, width: r.width, height: r.height });
+      map.set(r.drawing_id, list);
+      return map;
+    }, new Map<string, { pageNo: number; width: number; height: number }[]>());
+  }
+
+  const pdfFallback = new Map<string, string>();
+  if (drawingRows.length > 0) {
     const { data: signed } = await supabase.storage
       .from("project-drawings")
       .createSignedUrls(
-        drawings.map((d) => d.file_path),
+        drawingRows.map((d) => d.file_path),
         3600,
       );
-    drawingLinks = (signed ?? []).flatMap((s, i) =>
-      s.signedUrl
-        ? [{ name: drawings[i].original_name ?? `Drawing ${i + 1}`, url: s.signedUrl }]
-        : [],
-    );
+    (signed ?? []).forEach((s, i) => {
+      if (s.signedUrl) pdfFallback.set(drawingRows[i].id, s.signedUrl);
+    });
   }
+
+  const drawingFiles = drawingRows.map((d, i) => ({
+    id: d.id,
+    name: d.original_name ?? `Drawing ${i + 1}`,
+    status: d.status ?? "processing",
+    version: d.version ?? 1,
+    pageCount: d.page_count ?? null,
+    pages: pagesByDrawing.get(d.id) ?? [],
+    pdfUrl: pdfFallback.get(d.id) ?? null,
+  }));
 
   // Gallery (private bucket → signed URLs)
   let gallery: {
@@ -221,7 +261,7 @@ export default async function ProjectPage({
         coverUrl={coverUrl}
         description={project.description}
         modelUrl={modelUrl}
-        drawings={drawingLinks}
+        drawings={drawingFiles}
         gallery={gallery}
         canUpload={admin || assignedIds.has(profile.id)}
         weldersSlot={weldersSlot}

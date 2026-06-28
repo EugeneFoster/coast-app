@@ -3,10 +3,10 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ModelPreview } from "@/components/model-preview";
+import { DrawingsViewer, type DrawingFile } from "@/components/drawings-viewer";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
 
-type Drawing = { name: string; url: string };
 type Media = {
   id: string;
   url: string;
@@ -25,7 +25,13 @@ function initials(name: string) {
   );
 }
 
-type Tab = "overview" | "gallery";
+type Tab = "overview" | "drawings" | "gallery";
+
+const TAB_LABELS: Record<Tab, string> = {
+  overview: "Overview",
+  drawings: "Drawings",
+  gallery: "Gallery",
+};
 
 export function ProjectTabs({
   projectId,
@@ -43,7 +49,7 @@ export function ProjectTabs({
   coverUrl: string | null;
   description: string | null;
   modelUrl: string | null;
-  drawings: Drawing[];
+  drawings: DrawingFile[];
   gallery: Media[];
   canUpload: boolean;
   weldersSlot?: ReactNode;
@@ -53,7 +59,7 @@ export function ProjectTabs({
   return (
     <div className="mt-8">
       <div className="flex gap-6 border-b border-rule">
-        {(["overview", "gallery"] as Tab[]).map((t) => (
+        {(["overview", "drawings", "gallery"] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -62,7 +68,7 @@ export function ProjectTabs({
               tab === t ? "text-ink" : "text-graph hover:text-ink"
             }`}
           >
-            {t === "overview" ? "Overview" : "Gallery"}
+            {TAB_LABELS[t]}
             {tab === t && (
               <span className="absolute bottom-0 left-0 h-0.5 w-full bg-weld" />
             )}
@@ -70,16 +76,25 @@ export function ProjectTabs({
         ))}
       </div>
 
-      {tab === "overview" ? (
+      {tab === "overview" && (
         <OverviewPanel
           name={name}
           coverUrl={coverUrl}
           description={description}
           modelUrl={modelUrl}
-          drawings={drawings}
           weldersSlot={weldersSlot}
         />
-      ) : (
+      )}
+      {tab === "drawings" && (
+        <div className="mt-6">
+          {drawings.length > 0 ? (
+            <DrawingsViewer files={drawings} />
+          ) : (
+            <p className="text-sm text-graph">No drawings uploaded.</p>
+          )}
+        </div>
+      )}
+      {tab === "gallery" && (
         <GalleryPanel
           projectId={projectId}
           gallery={gallery}
@@ -95,14 +110,12 @@ function OverviewPanel({
   coverUrl,
   description,
   modelUrl,
-  drawings,
   weldersSlot,
 }: {
   name: string;
   coverUrl: string | null;
   description: string | null;
   modelUrl: string | null;
-  drawings: Drawing[];
   weldersSlot?: ReactNode;
 }) {
   return (
@@ -131,39 +144,6 @@ function OverviewPanel({
           <h2 className="font-display text-lg font-medium text-ink">3D model</h2>
           <div className="mt-4">
             <ModelPreview src={modelUrl} />
-          </div>
-        </section>
-      )}
-
-      {drawings.length > 0 && (
-        <section>
-          <h2 className="font-display text-lg font-medium text-ink">
-            Drawings{" "}
-            <span className="font-mono text-sm text-graph">
-              ({drawings.length})
-            </span>
-          </h2>
-          <div className="mt-4 space-y-6">
-            {drawings.map((d, i) => (
-              <div key={i}>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="truncate text-sm text-ink">{d.name}</span>
-                  <a
-                    href={d.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ml-3 text-xs text-graph hover:text-weld"
-                  >
-                    Open ↗
-                  </a>
-                </div>
-                <iframe
-                  src={d.url}
-                  title={d.name}
-                  className="h-[640px] w-full rounded border border-rule bg-bone"
-                />
-              </div>
-            ))}
           </div>
         </section>
       )}
