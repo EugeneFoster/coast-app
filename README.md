@@ -58,6 +58,8 @@ Required repository secrets:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
+The deploy workflow uploads these secrets to the Worker runtime via Wrangler (`scripts/sync-worker-secrets.sh`), so you do not need to enter them manually in Cloudflare UI.
+
 Optional repository secrets (for auto-bootstrap logins):
 
 - `SUPABASE_SERVICE_ROLE_KEY`
