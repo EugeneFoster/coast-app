@@ -118,6 +118,16 @@ export async function signIn(formData: FormData) {
       console.error("Failed to bootstrap configured account", error);
       const message =
         error instanceof Error ? error.message : "Account setup failed.";
+
+      if (
+        message.includes("Could not find the table") ||
+        message.includes("schema cache")
+      ) {
+        redirectWithError(
+          "Database is not initialized yet. Add SUPABASE_DB_PASSWORD to GitHub secrets and redeploy.",
+        );
+      }
+
       redirectWithError(`Account setup failed: ${message}`);
     }
   }
