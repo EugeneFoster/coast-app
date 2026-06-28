@@ -4,7 +4,6 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "preDeployCommand": "node scripts/apply-supabase-schema.mjs",
     "startCommand": "npm run start",
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
