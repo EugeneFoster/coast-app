@@ -10,7 +10,7 @@ export default async function AppLayout({
   const { profile } = await requireUser();
 
   return (
-    <div className="flex min-h-screen bg-bone">
+    <div className="flex min-h-screen">
       <Sidebar profile={profile} isAdminUser={isAdmin(profile)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-end px-6 py-3">

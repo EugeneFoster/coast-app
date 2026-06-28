@@ -7,6 +7,11 @@
   --graph: #6c6e73;
   --rule: #dbd7cb;
   --weld: #cb5530;
+
+  /* Blueprint backdrop */
+  --bp-base: #e9f0f7;
+  --bp-minor: rgba(37, 99, 162, 0.09);
+  --bp-major: rgba(37, 99, 162, 0.2);
 }
 
 .dark {
@@ -16,6 +21,11 @@
   --graph: #9a9ca1;
   --rule: #2e2f34;
   --weld: #e0673c;
+
+  /* Blueprint backdrop */
+  --bp-base: #0d1a2b;
+  --bp-minor: rgba(120, 170, 220, 0.07);
+  --bp-major: rgba(120, 170, 220, 0.16);
 }
 
 @theme inline {
@@ -32,8 +42,36 @@
 }
 
 body {
-  background: var(--bone);
   color: var(--ink);
+  background-color: var(--bp-base);
+  background-image:
+    linear-gradient(var(--bp-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bp-minor) 1px, transparent 1px),
+    linear-gradient(var(--bp-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bp-major) 1px, transparent 1px);
+  background-size:
+    22px 22px,
+    22px 22px,
+    110px 110px,
+    110px 110px;
+  background-position: -1px -1px;
+  background-attachment: fixed;
+}
+
+/* Reusable blueprint surface */
+.blueprint {
+  background-color: var(--bp-base);
+  background-image:
+    linear-gradient(var(--bp-minor) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bp-minor) 1px, transparent 1px),
+    linear-gradient(var(--bp-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bp-major) 1px, transparent 1px);
+  background-size:
+    22px 22px,
+    22px 22px,
+    110px 110px,
+    110px 110px;
+  background-position: -1px -1px;
 }
 
 .font-display {
