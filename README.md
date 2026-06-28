@@ -12,12 +12,10 @@ Field app foundation slice: authentication, role-based access, and project CRUD.
 ## Getting started
 
 1. Copy `.env.example` to `.env.local` and fill in Supabase credentials.
-2. Run database setup in Supabase **SQL Editor**:
-   - open `supabase/setup-all.sql`
-   - paste the full file into SQL Editor
-   - click **Run**
+2. Add `SUPABASE_DB_PASSWORD` (or `SUPABASE_ACCESS_TOKEN`) to GitHub secrets.
+   Deploy workflow applies `supabase/setup-all.sql` automatically.
 3. Deploy the app (GitHub Actions or `npm run deploy`).
-   Configured accounts (`ADMIN_*`, `DRAW_*`) are created automatically on first login after SQL setup.
+   Configured accounts from GitHub secrets are created automatically on first login.
 
 4. Install and run locally:
 
@@ -66,6 +64,12 @@ Optional repository secrets (for auto-bootstrap logins):
 - `ADMIN_PASSWORD`
 - `DRAW_LOGIN`
 - `DRAW_PASSWORD`
+
+Automatic Supabase schema setup during deploy needs one of:
+
+- `SUPABASE_DB_PASSWORD` (database password from Supabase → Project Settings → Database)
+- `SUPABASE_ACCESS_TOKEN` (personal access token from Supabase account settings)
+- `DATABASE_URL` (full Postgres connection string)
 
 ## Roles
 
