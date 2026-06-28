@@ -27,7 +27,8 @@
   --color-weld: var(--weld);
   --font-display: var(--font-oswald);
   --font-mono: var(--font-jetbrains-mono);
-  --font-sans: var(--font-oswald);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
 }
 
 body {
