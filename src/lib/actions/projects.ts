@@ -10,8 +10,6 @@ export type NewProjectInput = {
   projectId: string;
   name: string;
   description?: string | null;
-  clientId?: string | null;
-  newClientName?: string | null;
   coverPath?: string | null;
   modelPath?: string | null;
   drawings?: { path: string; originalName: string }[];
@@ -51,39 +49,24 @@ export async function createProjectAction(
     return { error: "Drawings must be PDF files." };
   }
 
-  // Resolve client → client_id (find-or-create, case-insensitive).
-  let clientId = input.clientId?.trim() || null;
-  if (!clientId && input.newClientName?.trim()) {
-    const trimmed = input.newClientName.trim();
-    const { data: existing } = await supabase
-      .from("clients")
-      .select("id")
-      .ilike("name", trimmed)
-      .limit(1);
-    if (existing && existing.length > 0) {
-      clientId = existing[0].id;
-    } else {
-      const { data: created, error: clientError } = await supabase
-        .from("clients")
-        .insert({ name: trimmed })
-        .select("id")
-        .single();
-      if (clientError) return { error: clientError.message };
-      clientId = created.id;
-    }
-  }
-
-  const { error: projectError } = await supabase.from("projects").insert({
+  const projectRow: Record<string, unknown> = {
     id: projectId,
     name,
-    client_id: clientId,
     description: input.description?.trim() || null,
     status: "planned",
     cover_url: input.coverPath ?? null,
-    model_url: input.modelPath ?? null,
     drawing_count: drawings.length,
     created_by: user.id,
-  });
+  };
+  // Only set model_url when a model is provided so the insert works even
+  // before the model_url migration is applied.
+  if (input.modelPath) {
+    projectRow.model_url = input.modelPath;
+  }
+
+  const { error: projectError } = await supabase
+    .from("projects")
+    .insert(projectRow);
   if (projectError) return { error: projectError.message };
 
   if (drawings.length > 0) {
