@@ -154,6 +154,29 @@ export async function deleteProject(projectId: string) {
   redirect("/projects");
 }
 
+export async function addGalleryItem(
+  projectId: string,
+  filePath: string,
+  mediaType: "photo" | "video",
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Your session has expired. Please sign in again." };
+
+  const { error } = await supabase.from("gallery_items").insert({
+    project_id: projectId,
+    file_path: filePath,
+    media_type: mediaType,
+    uploaded_by: user.id,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}
+
 export async function assignWelder(projectId: string, profileId: string) {
   await requireAdmin();
   const supabase = await createClient();

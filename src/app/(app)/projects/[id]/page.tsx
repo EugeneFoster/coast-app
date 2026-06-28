@@ -6,8 +6,19 @@ import { StatusChip } from "@/components/status-chip";
 import { StatusSelect } from "@/components/status-select";
 import { ProjectNameEditor } from "@/components/project-name-editor";
 import { ProjectKebab } from "@/components/project-kebab";
-import { ModelPreview } from "@/components/model-preview";
+import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
+
+type ProfileLite = {
+  id: string;
+  full_name: string | null;
+  login: string;
+  role?: string;
+};
+
+function authorName(p: ProfileLite | null) {
+  return p?.full_name ?? p?.login ?? "Unknown";
+}
 
 export default async function ProjectPage({
   params,
@@ -48,13 +59,13 @@ export default async function ProjectPage({
     .eq("project_id", id)
     .order("created_at");
 
-  let coverUrl: string | null = null;
-  if (project.cover_url) {
-    coverUrl = supabase.storage
-      .from("project-covers")
-      .getPublicUrl(project.cover_url).data.publicUrl;
-  }
+  const { data: galleryRows } = await supabase
+    .from("gallery_items")
+    .select("id, file_path, media_type, profiles:uploaded_by(full_name, login)")
+    .eq("project_id", id)
+    .order("created_at", { ascending: false });
 
+  // Model (private bucket → signed URL)
   let modelUrl: string | null = null;
   if (project.model_url) {
     const { data: signed } = await supabase.storage
@@ -63,6 +74,7 @@ export default async function ProjectPage({
     modelUrl = signed?.signedUrl ?? null;
   }
 
+  // Drawings (private bucket → signed URLs, rendered inline)
   let drawingLinks: { name: string; url: string }[] = [];
   if (drawings && drawings.length > 0) {
     const { data: signed } = await supabase.storage
@@ -77,6 +89,91 @@ export default async function ProjectPage({
         : [],
     );
   }
+
+  // Gallery (private bucket → signed URLs)
+  let gallery: {
+    id: string;
+    url: string;
+    type: "photo" | "video";
+    author: string;
+  }[] = [];
+  if (galleryRows && galleryRows.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from("project-gallery")
+      .createSignedUrls(
+        galleryRows.map((g) => g.file_path),
+        3600,
+      );
+    gallery = (galleryRows ?? []).flatMap((g, i) => {
+      const url = signed?.[i]?.signedUrl;
+      if (!url) return [];
+      const raw = g.profiles as ProfileLite | ProfileLite[] | null;
+      const author = authorName(Array.isArray(raw) ? raw[0] : raw);
+      return [{ id: g.id, url, type: g.media_type as "photo" | "video", author }];
+    });
+  }
+
+  const weldersSlot = admin ? (
+    <section className="rounded border border-rule bg-paper p-6">
+      <h2 className="font-display text-lg font-medium text-ink">
+        Assigned welders
+      </h2>
+      <ul className="mt-4 space-y-2">
+        {members?.map((m) => {
+          const raw = m.profiles;
+          const p = (Array.isArray(raw) ? raw[0] : raw) as ProfileLite | null;
+          if (!p) return null;
+          return (
+            <li
+              key={m.profile_id}
+              className="flex items-center justify-between text-sm"
+            >
+              <span>{p.full_name ?? p.login}</span>
+              <form action={removeWelder.bind(null, id, m.profile_id)}>
+                <button
+                  type="submit"
+                  className="text-xs text-graph hover:text-weld"
+                >
+                  Remove
+                </button>
+              </form>
+            </li>
+          );
+        })}
+        {(!members || members.length === 0) && (
+          <li className="text-sm text-graph">No welders assigned</li>
+        )}
+      </ul>
+
+      {welders && welders.length > 0 && (
+        <form action={assignWelderFromForm} className="mt-4 flex gap-2">
+          <input type="hidden" name="project_id" value={id} />
+          <select
+            name="welder_id"
+            defaultValue=""
+            className="flex-1 rounded border border-rule bg-bone px-3 py-2 text-sm"
+          >
+            <option value="" disabled>
+              Add welder…
+            </option>
+            {welders
+              .filter((w) => !assignedIds.has(w.id))
+              .map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.full_name ?? w.login}
+                </option>
+              ))}
+          </select>
+          <button
+            type="submit"
+            className="rounded border border-rule px-4 py-2 text-sm hover:bg-bone"
+          >
+            Assign
+          </button>
+        </form>
+      )}
+    </section>
+  ) : null;
 
   return (
     <div className="p-8">
@@ -93,14 +190,12 @@ export default async function ProjectPage({
               {project.name}
             </h1>
           )}
-          <p className="mt-2 text-graph">
-            {project.clients?.name ?? "No client"}
-          </p>
+          <p className="mt-2 text-graph">{project.clients?.name ?? "No client"}</p>
         </div>
         {admin && <ProjectKebab projectId={id} />}
       </div>
 
-      <div className="mt-8 flex flex-wrap items-center gap-4">
+      <div className="mt-6 flex flex-wrap items-center gap-4">
         {admin ? (
           <StatusSelect projectId={id} current={project.status} />
         ) : (
@@ -111,130 +206,15 @@ export default async function ProjectPage({
         </span>
       </div>
 
-      {coverUrl && (
-        <div className="mt-8 overflow-hidden rounded border border-rule bg-paper">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={coverUrl}
-            alt={`${project.name} cover`}
-            className="max-h-80 w-full object-cover"
-          />
-        </div>
-      )}
-
-      {project.description && (
-        <div className="mt-8 rounded border border-rule bg-paper p-6">
-          <h2 className="text-sm font-medium text-ink">Description</h2>
-          <p className="mt-2 text-sm text-graph whitespace-pre-wrap">
-            {project.description}
-          </p>
-        </div>
-      )}
-
-      {modelUrl && (
-        <div className="mt-8 rounded border border-rule bg-paper p-6">
-          <h2 className="font-display text-lg font-medium text-ink">3D model</h2>
-          <div className="mt-4">
-            <ModelPreview src={modelUrl} />
-          </div>
-        </div>
-      )}
-
-      {drawingLinks.length > 0 && (
-        <div className="mt-8 rounded border border-rule bg-paper p-6">
-          <h2 className="font-display text-lg font-medium text-ink">
-            Drawings{" "}
-            <span className="font-mono text-sm text-graph">
-              ({drawingLinks.length})
-            </span>
-          </h2>
-          <ul className="mt-4 space-y-2">
-            {drawingLinks.map((d, i) => (
-              <li key={i}>
-                <a
-                  href={d.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between rounded border border-rule px-3 py-2 text-sm text-ink transition-colors hover:border-weld hover:text-weld"
-                >
-                  <span className="truncate">{d.name}</span>
-                  <span className="ml-3 font-mono text-xs text-graph">PDF</span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {admin && (
-        <div className="mt-8 rounded border border-rule bg-paper p-6">
-          <h2 className="font-display text-lg font-medium text-ink">
-            Assigned welders
-          </h2>
-          <ul className="mt-4 space-y-2">
-            {members?.map((m) => {
-              const raw = m.profiles;
-              const p = (Array.isArray(raw) ? raw[0] : raw) as {
-                id: string;
-                full_name: string | null;
-                login: string;
-              } | null;
-              if (!p) return null;
-              return (
-                <li
-                  key={m.profile_id}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span>{p.full_name ?? p.login}</span>
-                  <form action={removeWelder.bind(null, id, m.profile_id)}>
-                    <button
-                      type="submit"
-                      className="text-xs text-graph hover:text-weld"
-                    >
-                      Remove
-                    </button>
-                  </form>
-                </li>
-              );
-            })}
-            {(!members || members.length === 0) && (
-              <li className="text-sm text-graph">No welders assigned</li>
-            )}
-          </ul>
-
-          {welders && welders.length > 0 && (
-            <form action={assignWelderFromForm} className="mt-4 flex gap-2">
-              <input type="hidden" name="project_id" value={id} />
-              <select
-                name="welder_id"
-                defaultValue=""
-                className="flex-1 rounded border border-rule bg-bone px-3 py-2 text-sm"
-              >
-                <option value="" disabled>
-                  Add welder…
-                </option>
-                {welders
-                  .filter((w) => !assignedIds.has(w.id))
-                  .map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.full_name ?? w.login}
-                    </option>
-                  ))}
-              </select>
-              <button
-                type="submit"
-                className="rounded border border-rule px-4 py-2 text-sm hover:bg-bone"
-              >
-                Assign
-              </button>
-            </form>
-          )}
-        </div>
-      )}
-
-      {!admin && (
-        <p className="mt-8 text-sm text-graph">Read-only project view</p>
-      )}
+      <ProjectTabs
+        projectId={id}
+        description={project.description}
+        modelUrl={modelUrl}
+        drawings={drawingLinks}
+        gallery={gallery}
+        canUpload={admin || assignedIds.has(profile.id)}
+        weldersSlot={weldersSlot}
+      />
     </div>
   );
 }
