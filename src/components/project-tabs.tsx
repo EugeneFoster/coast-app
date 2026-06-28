@@ -33,6 +33,7 @@ type Tab = "overview" | "gallery";
 
 export function ProjectTabs({
   projectId,
+  coverUrl,
   description,
   modelUrl,
   drawings,
@@ -41,6 +42,7 @@ export function ProjectTabs({
   weldersSlot,
 }: {
   projectId: string;
+  coverUrl: string | null;
   description: string | null;
   modelUrl: string | null;
   drawings: Drawing[];
@@ -72,6 +74,7 @@ export function ProjectTabs({
 
       {tab === "overview" ? (
         <OverviewPanel
+          coverUrl={coverUrl}
           description={description}
           modelUrl={modelUrl}
           drawings={drawings}
@@ -89,11 +92,13 @@ export function ProjectTabs({
 }
 
 function OverviewPanel({
+  coverUrl,
   description,
   modelUrl,
   drawings,
   weldersSlot,
 }: {
+  coverUrl: string | null;
   description: string | null;
   modelUrl: string | null;
   drawings: Drawing[];
@@ -101,6 +106,17 @@ function OverviewPanel({
 }) {
   return (
     <div className="mt-6 space-y-8">
+      {coverUrl && (
+        <section className="overflow-hidden rounded border border-rule bg-paper">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={coverUrl}
+            alt=""
+            className="max-h-80 w-full object-cover"
+          />
+        </section>
+      )}
+
       {modelUrl && (
         <section className="rounded border border-rule bg-paper p-6">
           <h2 className="font-display text-lg font-medium text-ink">3D model</h2>
@@ -152,7 +168,7 @@ function OverviewPanel({
         </section>
       )}
 
-      {!modelUrl && !description && drawings.length === 0 && (
+      {!coverUrl && !modelUrl && !description && drawings.length === 0 && (
         <p className="text-sm text-graph">No overview content yet.</p>
       )}
 

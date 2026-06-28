@@ -65,6 +65,11 @@ export default async function ProjectPage({
     .eq("project_id", id)
     .order("created_at", { ascending: false });
 
+  // Cover (public bucket → public URL)
+  const coverUrl = project.cover_url
+    ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/project-covers/${project.cover_url}`
+    : null;
+
   // Model (private bucket → signed URL)
   let modelUrl: string | null = null;
   if (project.model_url) {
@@ -208,6 +213,7 @@ export default async function ProjectPage({
 
       <ProjectTabs
         projectId={id}
+        coverUrl={coverUrl}
         description={project.description}
         modelUrl={modelUrl}
         drawings={drawingLinks}
