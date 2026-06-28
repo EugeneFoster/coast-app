@@ -6,6 +6,7 @@ import type { ProjectStatus } from "@/lib/types";
 
 const filters: { label: string; value: ProjectStatus | "all" }[] = [
   { label: "All", value: "all" },
+  { label: "Planned", value: "planned" },
   { label: "In progress", value: "in_progress" },
   { label: "In review", value: "in_review" },
   { label: "Completed", value: "completed" },
