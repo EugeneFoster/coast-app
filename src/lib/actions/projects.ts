@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { enqueueTiling } from "@/lib/queue";
 import type { ProjectStatus } from "@/lib/types";
 
 const GALLERY_BUCKET = "project-gallery";
@@ -106,15 +107,27 @@ export async function createProjectAction(
   if (projectError) return { error: projectError.message };
 
   if (drawings.length > 0) {
-    const { error: drawingError } = await supabase.from("drawings").insert(
-      drawings.map((d) => ({
-        project_id: projectId,
-        file_path: d.path,
-        original_name: d.originalName,
-        uploaded_by: user.id,
-      })),
-    );
+    const { data: insertedDrawings, error: drawingError } = await supabase
+      .from("drawings")
+      .insert(
+        drawings.map((d) => ({
+          project_id: projectId,
+          file_path: d.path,
+          original_name: d.originalName,
+          uploaded_by: user.id,
+        })),
+      )
+      .select("id, file_path");
     if (drawingError) return { error: drawingError.message };
+
+    // Kick off tiling for the deep-zoom viewer (no-op without REDIS_URL).
+    for (const d of insertedDrawings ?? []) {
+      await enqueueTiling({
+        drawingId: d.id,
+        version: 1,
+        pdfStorageKey: d.file_path,
+      });
+    }
   }
 
   const welderIds = (input.welderIds ?? []).filter(Boolean);
