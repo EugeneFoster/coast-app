@@ -8,6 +8,27 @@ function getProjectRef(supabaseUrl) {
   return hostname.split(".")[0];
 }
 
+async function schemaExistsViaServiceRole(supabaseUrl, serviceRoleKey) {
+  const { createClient } = require("@supabase/supabase-js");
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { error } = await supabase.from("profiles").select("id").limit(1);
+  if (!error) return true;
+
+  const message = error.message ?? "";
+  if (
+    message.includes("schema cache") ||
+    message.includes("Could not find the table") ||
+    error.code === "PGRST205"
+  ) {
+    return false;
+  }
+
+  throw new Error(message);
+}
+
 function getDatabaseUrl() {
   if (process.env.DATABASE_URL?.trim()) {
     return process.env.DATABASE_URL.trim();
@@ -108,8 +129,18 @@ async function applyViaManagementApi(projectRef, accessToken, sql) {
 
 async function main() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
   if (!supabaseUrl) {
     throw new Error("NEXT_PUBLIC_SUPABASE_URL is required.");
+  }
+
+  if (serviceRoleKey) {
+    const exists = await schemaExistsViaServiceRole(supabaseUrl, serviceRoleKey);
+    if (exists) {
+      console.log("Supabase schema already exists. Skipping setup.");
+      return;
+    }
   }
 
   const projectRef = getProjectRef(supabaseUrl);
@@ -119,7 +150,7 @@ async function main() {
 
   if (!accessToken && !databaseUrl) {
     throw new Error(
-      "Add SUPABASE_ACCESS_TOKEN or SUPABASE_DB_PASSWORD (or DATABASE_URL) to GitHub secrets for automatic schema setup.",
+      "Database schema is missing. Add SUPABASE_DB_PASSWORD (or SUPABASE_ACCESS_TOKEN) to GitHub secrets so deploy can create tables automatically.",
     );
   }
 
