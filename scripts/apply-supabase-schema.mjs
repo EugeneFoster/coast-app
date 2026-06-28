@@ -66,7 +66,7 @@ function buildPoolerCandidates(ref, password) {
   for (const prefix of POOLER_PREFIXES) {
     for (const region of POOLER_REGIONS) {
       candidates.push({
-        host: `${prefix}.${region}.pooler.supabase.com`,
+        host: `${prefix}-${region}.pooler.supabase.com`,
         port: 5432,
         user: `postgres.${ref}`,
         password,
