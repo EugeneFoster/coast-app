@@ -4,7 +4,43 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { ProjectStatus } from "@/lib/types";
+
+const GALLERY_BUCKET = "project-gallery";
+
+function sanitizeName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+// Authorize the current user for a project (admin or assigned member).
+async function assertProjectAccess(projectId: string): Promise<string> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role === "owner" || profile?.role === "draftsperson") {
+    return user.id;
+  }
+
+  const { data: member } = await supabase
+    .from("project_members")
+    .select("project_id")
+    .eq("project_id", projectId)
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  if (!member) throw new Error("You do not have access to this project.");
+  return user.id;
+}
 
 export type NewProjectInput = {
   projectId: string;
@@ -154,22 +190,56 @@ export async function deleteProject(projectId: string) {
   redirect("/projects");
 }
 
+// Issues a one-time signed upload URL so the client can upload directly to the
+// private gallery bucket (no per-bucket RLS policy needed). The bucket is
+// created on demand with the service role.
+export async function requestGalleryUpload(
+  projectId: string,
+  fileName: string,
+): Promise<{ path: string; token: string } | { error: string }> {
+  try {
+    await assertProjectAccess(projectId);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Access denied." };
+  }
+
+  const admin = createAdminClient();
+
+  const { error: bucketError } = await admin.storage.createBucket(
+    GALLERY_BUCKET,
+    { public: false },
+  );
+  if (bucketError && !/already exists/i.test(bucketError.message)) {
+    return { error: bucketError.message };
+  }
+
+  const path = `${projectId}/${crypto.randomUUID()}-${sanitizeName(fileName)}`;
+  const { data, error } = await admin.storage
+    .from(GALLERY_BUCKET)
+    .createSignedUploadUrl(path);
+  if (error) return { error: error.message };
+
+  return { path, token: data.token };
+}
+
 export async function addGalleryItem(
   projectId: string,
   filePath: string,
   mediaType: "photo" | "video",
 ): Promise<{ error?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Your session has expired. Please sign in again." };
+  let userId: string;
+  try {
+    userId = await assertProjectAccess(projectId);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Access denied." };
+  }
 
-  const { error } = await supabase.from("gallery_items").insert({
+  const admin = createAdminClient();
+  const { error } = await admin.from("gallery_items").insert({
     project_id: projectId,
     file_path: filePath,
     media_type: mediaType,
-    uploaded_by: user.id,
+    uploaded_by: userId,
   });
   if (error) return { error: error.message };
 

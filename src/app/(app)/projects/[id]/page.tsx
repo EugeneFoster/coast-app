@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser, isAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { StatusChip } from "@/components/status-chip";
 import { StatusSelect } from "@/components/status-select";
 import { ProjectNameEditor } from "@/components/project-name-editor";
@@ -59,7 +60,10 @@ export default async function ProjectPage({
     .eq("project_id", id)
     .order("created_at");
 
-  const { data: galleryRows } = await supabase
+  // Gallery is read with the service role (access already gated by the project
+  // fetch above), so no per-table read policy is required.
+  const adminClient = createAdminClient();
+  const { data: galleryRows } = await adminClient
     .from("gallery_items")
     .select("id, file_path, media_type, profiles:uploaded_by(full_name, login)")
     .eq("project_id", id)
@@ -103,7 +107,7 @@ export default async function ProjectPage({
     author: string;
   }[] = [];
   if (galleryRows && galleryRows.length > 0) {
-    const { data: signed } = await supabase.storage
+    const { data: signed } = await adminClient.storage
       .from("project-gallery")
       .createSignedUrls(
         galleryRows.map((g) => g.file_path),

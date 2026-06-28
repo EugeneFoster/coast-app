@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ModelPreview } from "@/components/model-preview";
-import { addGalleryItem } from "@/lib/actions/projects";
+import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
 
 type Drawing = { name: string; url: string };
@@ -23,10 +23,6 @@ function initials(name: string) {
       .slice(0, 2)
       .toUpperCase() || "?"
   );
-}
-
-function sanitize(name: string) {
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 type Tab = "overview" | "gallery";
@@ -206,16 +202,18 @@ function GalleryPanel({
         const type: "photo" | "video" = file.type.startsWith("video/")
           ? "video"
           : "photo";
-        const path = `${projectId}/${crypto.randomUUID()}-${sanitize(file.name)}`;
+
+        const signed = await requestGalleryUpload(projectId, file.name);
+        if ("error" in signed) throw new Error(signed.error);
+
         const { error: upErr } = await supabase.storage
           .from("project-gallery")
-          .upload(path, file, {
-            upsert: true,
+          .uploadToSignedUrl(signed.path, signed.token, file, {
             contentType: file.type || undefined,
           });
         if (upErr) throw new Error(upErr.message);
 
-        const result = await addGalleryItem(projectId, path, type);
+        const result = await addGalleryItem(projectId, signed.path, type);
         if (result.error) throw new Error(result.error);
       }
       if (fileRef.current) fileRef.current.value = "";
