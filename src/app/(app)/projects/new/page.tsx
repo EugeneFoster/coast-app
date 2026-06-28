@@ -8,15 +8,12 @@ export default async function NewProjectPage() {
 
   const supabase = await createClient();
 
-  const [{ data: clients }, { data: welders }] = await Promise.all([
-    supabase.from("clients").select("id, name").order("name"),
-    supabase
-      .from("profiles")
-      .select("id, full_name, login")
-      .eq("role", "welder")
-      .eq("status", "active")
-      .order("full_name"),
-  ]);
+  const { data: welders } = await supabase
+    .from("profiles")
+    .select("id, full_name, login")
+    .eq("role", "welder")
+    .eq("status", "active")
+    .order("full_name");
 
   return (
     <div className="mx-auto max-w-lg p-8">
@@ -28,7 +25,7 @@ export default async function NewProjectPage() {
         Create project
       </h1>
 
-      <NewProjectForm clients={clients ?? []} welders={welders ?? []} />
+      <NewProjectForm welders={welders ?? []} />
     </div>
   );
 }

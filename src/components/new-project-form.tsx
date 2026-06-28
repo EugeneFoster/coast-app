@@ -5,7 +5,6 @@ import { ModelPreview } from "@/components/model-preview";
 import { createProjectAction } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
 
-type ClientOption = { id: string; name: string };
 type WelderOption = { id: string; full_name: string | null; login: string };
 
 const MAX_COVER = 10 * 1024 * 1024;
@@ -25,21 +24,11 @@ function ext(name: string) {
   return m ? m[0].toLowerCase() : "";
 }
 
-export function NewProjectForm({
-  clients,
-  welders,
-}: {
-  clients: ClientOption[];
-  welders: WelderOption[];
-}) {
+export function NewProjectForm({ welders }: { welders: WelderOption[] }) {
   const supabase = useMemo(() => createClient(), []);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-
-  const [clientId, setClientId] = useState<string | null>(null);
-  const [clientInput, setClientInput] = useState("");
-  const [clientOpen, setClientOpen] = useState(false);
 
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [modelFile, setModelFile] = useState<File | null>(null);
@@ -54,21 +43,6 @@ export function NewProjectForm({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
-
-  const filteredClients = clientInput.trim()
-    ? clients.filter((c) =>
-        c.name.toLowerCase().includes(clientInput.trim().toLowerCase()),
-      )
-    : clients;
-  const exactMatch = clients.find(
-    (c) => c.name.toLowerCase() === clientInput.trim().toLowerCase(),
-  );
-
-  function pickClient(c: ClientOption) {
-    setClientId(c.id);
-    setClientInput(c.name);
-    setClientOpen(false);
-  }
 
   function toggleWelder(id: string) {
     setWelderIds((prev) => {
@@ -155,8 +129,6 @@ export function NewProjectForm({
         projectId,
         name: name.trim(),
         description: description.trim() || null,
-        clientId,
-        newClientName: clientId ? null : clientInput.trim() || null,
         coverPath,
         modelPath,
         drawings,
@@ -202,58 +174,6 @@ export function NewProjectForm({
           placeholder="Dock · Roberts Creek"
           className={inputClass}
         />
-      </div>
-
-      {/* Client combobox */}
-      <div className="relative">
-        <label htmlFor="client" className={labelClass}>
-          Client
-        </label>
-        <input
-          id="client"
-          value={clientInput}
-          onChange={(e) => {
-            setClientInput(e.target.value);
-            setClientId(null);
-            setClientOpen(true);
-          }}
-          onFocus={() => setClientOpen(true)}
-          onBlur={() => setTimeout(() => setClientOpen(false), 150)}
-          disabled={pending}
-          autoComplete="off"
-          placeholder="Search or add a client"
-          className={inputClass}
-        />
-        {clientOpen && (filteredClients.length > 0 || clientInput.trim()) && (
-          <div className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded border border-rule bg-paper shadow-lg">
-            {filteredClients.map((c) => (
-              <button
-                type="button"
-                key={c.id}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pickClient(c)}
-                className={`block w-full px-3 py-2 text-left text-sm hover:bg-bone ${
-                  clientId === c.id ? "text-weld" : "text-ink"
-                }`}
-              >
-                {c.name}
-              </button>
-            ))}
-            {clientInput.trim() && !exactMatch && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setClientId(null);
-                  setClientOpen(false);
-                }}
-                className="block w-full border-t border-rule px-3 py-2 text-left text-sm text-graph hover:bg-bone"
-              >
-                Create “{clientInput.trim()}”
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       <div>
