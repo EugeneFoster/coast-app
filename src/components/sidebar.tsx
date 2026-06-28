@@ -36,12 +36,12 @@ export function Sidebar({
   const admin = isAdminUser;
 
   return (
-    <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-rule bg-ink text-bone">
+    <aside className="blueprint-panel sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-rule text-ink">
       <div className="px-6 py-7">
-        <p className="font-display text-2xl font-semibold uppercase tracking-[0.3em] text-bone">
+        <p className="font-display text-2xl font-semibold uppercase tracking-[0.3em] text-ink">
           COAST
         </p>
-        <p className="mt-1.5 text-[0.65rem] uppercase tracking-[0.35em] text-bone/45">
+        <p className="mt-1.5 text-[0.65rem] uppercase tracking-[0.35em] text-ink/45">
           metal works
         </p>
       </div>
@@ -60,7 +60,7 @@ export function Sidebar({
                 className={`relative rounded px-3 py-2.5 text-[0.95rem] transition-colors ${
                   active
                     ? "font-medium text-weld"
-                    : "text-bone/65 hover:bg-bone/5 hover:text-bone"
+                    : "text-ink/65 hover:bg-ink/5 hover:text-ink"
                 }`}
               >
                 {active && (
@@ -72,7 +72,7 @@ export function Sidebar({
           })}
       </nav>
 
-      <div className="border-t border-bone/10 px-5 py-5">
+      <div className="border-t border-rule px-5 py-5">
         <div className="flex items-center gap-3">
           {profile.avatar_url ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -84,15 +84,15 @@ export function Sidebar({
               className="h-9 w-9 rounded-full object-cover"
             />
           ) : (
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-bone font-mono text-xs font-semibold text-ink">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-ink/10 font-mono text-xs font-semibold text-ink">
               {initials(profile)}
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-bone">
+            <p className="truncate text-sm font-medium text-ink">
               {profile.full_name ?? profile.login}
             </p>
-            <p className="truncate text-xs lowercase text-bone/45">
+            <p className="truncate text-xs lowercase text-ink/45">
               {profile.role}
             </p>
           </div>
@@ -100,7 +100,7 @@ export function Sidebar({
         <form action={signOut} className="mt-3">
           <button
             type="submit"
-            className="w-full rounded px-3 py-1.5 text-left text-xs text-bone/50 transition-colors hover:bg-bone/5 hover:text-bone"
+            className="w-full rounded px-3 py-1.5 text-left text-xs text-ink/50 transition-colors hover:bg-ink/5 hover:text-ink"
           >
             Sign out
           </button>
