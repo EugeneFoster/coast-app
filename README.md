@@ -1,81 +1,76 @@
 # COAST — metal works
 
-Field app foundation slice: authentication, role-based access, and project CRUD.
+Field app for coastal metal fabrication: authentication, role-based access, and project management.
 
 ## Stack
 
 - **Next.js 16** (App Router, TypeScript, Node.js runtime)
 - **Tailwind CSS 4**
 - **Supabase** (Postgres, Auth, Storage, RLS)
-- **Cloudflare Workers** via `@opennextjs/cloudflare`
+- **Railway** (Node container deploy)
 
-## Getting started
-
-1. Copy `.env.example` to `.env.local` and fill in Supabase credentials.
-2. Add `SUPABASE_DB_PASSWORD` (or `SUPABASE_ACCESS_TOKEN`) to GitHub secrets.
-   Deploy workflow applies `supabase/setup-all.sql` automatically.
-3. Deploy the app (GitHub Actions or `npm run deploy`).
-   Configured accounts from GitHub secrets are created automatically on first login.
-
-4. Install and run locally:
+## Local development
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Deploy (Cloudflare Workers)
+Create `.env.local` with:
 
-```bash
-npm run preview   # local Workers preview
-npm run deploy    # deploy to Cloudflare
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_DB_PASSWORD=...
+ADMIN_LOGIN=...
+ADMIN_PASSWORD=...
+DRAW_LOGIN=...
+DRAW_PASSWORD=...
 ```
 
-`npm run deploy` uses Wrangler minification to fit Cloudflare free-tier Worker size limits.
-The free-tier profile currently disables employee invitation activation flows (`/settings/employees` and `/invite/[token]`).
+Apply the database schema + demo seed locally:
 
-Connect the GitHub repo in Cloudflare → **Workers & Pages → Workers Builds**:
+```bash
+npm run db:setup
+```
 
-- Build command: `npx opennextjs-cloudflare build`
-- Deploy command: `npx opennextjs-cloudflare deploy --minify`
+## Deploy (Railway)
 
-Add all env vars under **Build variables and secrets**.
+The repo is configured for Railway via `railway.json` (Nixpacks builder):
 
-### Deploy via GitHub Actions (no manual Cloudflare UI env input)
+- **Build**: `next build` (Nixpacks auto-detects)
+- **Pre-deploy**: `node scripts/apply-supabase-schema.mjs` — applies `supabase/setup-all.sql`
+  (first run) and `supabase/migrate.sql` (idempotent migrations + demo seed) on every deploy
+- **Start**: `next start` (binds to Railway's `$PORT`)
 
-This repository includes `.github/workflows/deploy-cloudflare.yml`.
+Railway auto-deploys on every push to `main` via the connected GitHub repo.
 
-- Push to `main` to deploy automatically.
-- Or run **Actions → Deploy Cloudflare Worker → Run workflow**.
+### Required Railway Variables
 
-Required repository secrets:
+Add these under the service's **Variables** tab:
 
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key (account bootstrap) |
+| `SUPABASE_DB_PASSWORD` | Postgres password (auto schema/migrations) |
+| `ADMIN_LOGIN` / `ADMIN_PASSWORD` | Seed owner account |
+| `DRAW_LOGIN` / `DRAW_PASSWORD` | Seed draftsperson account |
 
-The deploy workflow uploads these secrets to the Worker runtime via Wrangler (`scripts/sync-worker-secrets.sh`), so you do not need to enter them manually in Cloudflare UI.
+Configured accounts (`ADMIN_*`, `DRAW_*`) are created/synced automatically on first sign-in.
 
-Optional repository secrets (for auto-bootstrap logins):
+## Auth
 
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `ADMIN_LOGIN`
-- `ADMIN_PASSWORD`
-- `DRAW_LOGIN`
-- `DRAW_PASSWORD`
-
-Automatic Supabase schema setup during deploy needs one of:
-
-- `SUPABASE_DB_PASSWORD` (database password from Supabase → Project Settings → Database)
-- `SUPABASE_ACCESS_TOKEN` (personal access token from Supabase account settings)
-- `DATABASE_URL` (full Postgres connection string)
+Server-side Supabase SSR auth. `src/proxy.ts` refreshes the session cookie on every
+request; sign-in is a server action (`src/lib/actions/auth.ts`).
 
 ## Roles
 
 | Role | Access |
 |------|--------|
-| owner / draftsperson | Full admin — projects, employees, invites |
+| owner / draftsperson | Full admin — projects |
 | welder | Read-only on assigned projects only |
 
 RLS enforces access at the database layer.
