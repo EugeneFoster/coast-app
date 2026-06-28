@@ -5,6 +5,46 @@ alter table public.projects add column if not exists revision integer not null d
 alter table public.projects add column if not exists drawing_count integer not null default 0;
 alter table public.projects add column if not exists structure_type text;
 
+-- Create-project flow: 3D model path + drawings table.
+alter table public.projects add column if not exists model_url text;
+
+create table if not exists public.drawings (
+  id            uuid primary key default gen_random_uuid(),
+  project_id    uuid references public.projects(id) on delete cascade,
+  file_path     text not null,
+  original_name text,
+  page_count    int,
+  uploaded_by   uuid references public.profiles(id),
+  created_at    timestamptz not null default now()
+);
+
+alter table public.drawings enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'drawings' and policyname = 'drawings_admin'
+  ) then
+    create policy drawings_admin on public.drawings
+      for all using (public.is_admin()) with check (public.is_admin());
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'drawings' and policyname = 'drawings_member_read'
+  ) then
+    create policy drawings_member_read on public.drawings
+      for select using (
+        public.is_admin()
+        or exists (
+          select 1 from public.project_members m
+          where m.project_id = drawings.project_id and m.profile_id = auth.uid()
+        )
+      );
+  end if;
+end $$;
+
 -- Demo data: only when the project table is still empty.
 do $$
 declare

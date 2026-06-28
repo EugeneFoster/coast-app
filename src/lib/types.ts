@@ -33,6 +33,7 @@ export interface Project {
   description: string | null;
   status: ProjectStatus;
   cover_url: string | null;
+  model_url: string | null;
   revision: number;
   drawing_count: number;
   structure_type: string | null;
@@ -40,6 +41,16 @@ export interface Project {
   created_at: string;
   updated_at: string;
   clients?: Client | null;
+}
+
+export interface Drawing {
+  id: string;
+  project_id: string;
+  file_path: string;
+  original_name: string | null;
+  page_count: number | null;
+  uploaded_by: string | null;
+  created_at: string;
 }
 
 export interface ProjectMember {

@@ -6,43 +6,113 @@ import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { ProjectStatus } from "@/lib/types";
 
-export async function createProject(formData: FormData) {
+export type NewProjectInput = {
+  projectId: string;
+  name: string;
+  description?: string | null;
+  clientId?: string | null;
+  newClientName?: string | null;
+  coverPath?: string | null;
+  modelPath?: string | null;
+  drawings?: { path: string; originalName: string }[];
+  welderIds?: string[];
+};
+
+const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif)$/i;
+const MODEL_RE = /\.(glb|gltf)$/i;
+const PDF_RE = /\.pdf$/i;
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+
+export async function createProjectAction(
+  input: NewProjectInput,
+): Promise<{ error: string } | void> {
   await requireAdmin();
   const supabase = await createClient();
-
-  const name = formData.get("name") as string;
-  const clientName = formData.get("client_name") as string;
-  const description = (formData.get("description") as string) || null;
-
-  let clientId: string | null = null;
-  if (clientName?.trim()) {
-    const { data: client } = await supabase
-      .from("clients")
-      .insert({ name: clientName.trim() })
-      .select("id")
-      .single();
-    clientId = client?.id ?? null;
-  }
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (!user) return { error: "Your session has expired. Please sign in again." };
 
-  const { data: project, error } = await supabase
-    .from("projects")
-    .insert({
-      name: name.trim(),
-      client_id: clientId,
-      description,
-      created_by: user?.id,
-    })
-    .select("id")
-    .single();
+  const projectId = (input.projectId ?? "").trim();
+  if (!UUID_RE.test(projectId)) return { error: "Invalid project reference." };
 
-  if (error) throw new Error(error.message);
+  const name = (input.name ?? "").trim();
+  if (!name) return { error: "Project name is required." };
+
+  if (input.coverPath && !IMAGE_RE.test(input.coverPath)) {
+    return { error: "Cover must be an image file." };
+  }
+  if (input.modelPath && !MODEL_RE.test(input.modelPath)) {
+    return { error: "3D model must be a .glb or .gltf file." };
+  }
+  const drawings = input.drawings ?? [];
+  if (drawings.some((d) => !PDF_RE.test(d.path))) {
+    return { error: "Drawings must be PDF files." };
+  }
+
+  // Resolve client → client_id (find-or-create, case-insensitive).
+  let clientId = input.clientId?.trim() || null;
+  if (!clientId && input.newClientName?.trim()) {
+    const trimmed = input.newClientName.trim();
+    const { data: existing } = await supabase
+      .from("clients")
+      .select("id")
+      .ilike("name", trimmed)
+      .limit(1);
+    if (existing && existing.length > 0) {
+      clientId = existing[0].id;
+    } else {
+      const { data: created, error: clientError } = await supabase
+        .from("clients")
+        .insert({ name: trimmed })
+        .select("id")
+        .single();
+      if (clientError) return { error: clientError.message };
+      clientId = created.id;
+    }
+  }
+
+  const { error: projectError } = await supabase.from("projects").insert({
+    id: projectId,
+    name,
+    client_id: clientId,
+    description: input.description?.trim() || null,
+    status: "planned",
+    cover_url: input.coverPath ?? null,
+    model_url: input.modelPath ?? null,
+    drawing_count: drawings.length,
+    created_by: user.id,
+  });
+  if (projectError) return { error: projectError.message };
+
+  if (drawings.length > 0) {
+    const { error: drawingError } = await supabase.from("drawings").insert(
+      drawings.map((d) => ({
+        project_id: projectId,
+        file_path: d.path,
+        original_name: d.originalName,
+        uploaded_by: user.id,
+      })),
+    );
+    if (drawingError) return { error: drawingError.message };
+  }
+
+  const welderIds = (input.welderIds ?? []).filter(Boolean);
+  if (welderIds.length > 0) {
+    const { error: memberError } = await supabase
+      .from("project_members")
+      .insert(
+        welderIds.map((profileId) => ({
+          project_id: projectId,
+          profile_id: profileId,
+        })),
+      );
+    if (memberError) return { error: memberError.message };
+  }
 
   revalidatePath("/projects");
-  redirect(`/projects/${project.id}`);
+  redirect(`/projects/${projectId}`);
 }
 
 export async function updateProjectName(projectId: string, name: string) {

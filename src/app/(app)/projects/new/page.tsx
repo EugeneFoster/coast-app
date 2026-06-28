@@ -1,16 +1,26 @@
-import { requireAdmin } from "@/lib/auth";
-import { createProject } from "@/lib/actions/projects";
 import Link from "next/link";
+import { requireAdmin } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import { NewProjectForm } from "@/components/new-project-form";
 
 export default async function NewProjectPage() {
   await requireAdmin();
 
+  const supabase = await createClient();
+
+  const [{ data: clients }, { data: welders }] = await Promise.all([
+    supabase.from("clients").select("id, name").order("name"),
+    supabase
+      .from("profiles")
+      .select("id, full_name, login")
+      .eq("role", "welder")
+      .eq("status", "active")
+      .order("full_name"),
+  ]);
+
   return (
     <div className="mx-auto max-w-lg p-8">
-      <Link
-        href="/projects"
-        className="text-sm text-graph hover:text-ink"
-      >
+      <Link href="/projects" className="text-sm text-graph hover:text-ink">
         ← Back to projects
       </Link>
 
@@ -18,50 +28,7 @@ export default async function NewProjectPage() {
         Create project
       </h1>
 
-      <form action={createProject} className="mt-8 space-y-4">
-        <div>
-          <label htmlFor="name" className="block text-sm text-ink">
-            Project name
-          </label>
-          <input
-            id="name"
-            name="name"
-            type="text"
-            required
-            placeholder="Dock · Roberts Creek"
-            className="mt-1 w-full rounded border border-rule bg-paper px-3 py-2 text-sm text-ink focus:border-weld focus:outline-none"
-          />
-        </div>
-        <div>
-          <label htmlFor="client_name" className="block text-sm text-ink">
-            Client
-          </label>
-          <input
-            id="client_name"
-            name="client_name"
-            type="text"
-            placeholder="Coastal Marine Ltd"
-            className="mt-1 w-full rounded border border-rule bg-paper px-3 py-2 text-sm text-ink focus:border-weld focus:outline-none"
-          />
-        </div>
-        <div>
-          <label htmlFor="description" className="block text-sm text-ink">
-            Description
-          </label>
-          <textarea
-            id="description"
-            name="description"
-            rows={4}
-            className="mt-1 w-full rounded border border-rule bg-paper px-3 py-2 text-sm text-ink focus:border-weld focus:outline-none"
-          />
-        </div>
-        <button
-          type="submit"
-          className="rounded bg-weld px-4 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90"
-        >
-          Create project
-        </button>
-      </form>
+      <NewProjectForm clients={clients ?? []} welders={welders ?? []} />
     </div>
   );
 }
