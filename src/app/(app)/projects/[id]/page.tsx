@@ -123,7 +123,7 @@ export default async function ProjectPage({
   }
 
   const weldersSlot = admin ? (
-    <section className="rounded border border-rule bg-paper p-6">
+    <section className="border-t border-rule pt-6">
       <h2 className="font-display text-lg font-medium text-ink">
         Assigned welders
       </h2>
