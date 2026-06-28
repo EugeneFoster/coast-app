@@ -149,9 +149,12 @@ async function main() {
   const databaseUrl = getDatabaseUrl();
 
   if (!accessToken && !databaseUrl) {
-    throw new Error(
-      "Database schema is missing. Add SUPABASE_DB_PASSWORD (or SUPABASE_ACCESS_TOKEN) to GitHub secrets so deploy can create tables automatically.",
+    console.warn(
+      "::warning::Supabase schema is missing and no DB credentials are available to create it automatically. " +
+        "Add SUPABASE_DB_PASSWORD (Supabase → Project Settings → Database) or SUPABASE_ACCESS_TOKEN to GitHub secrets. " +
+        "Continuing deploy without schema setup.",
     );
+    return;
   }
 
   if (databaseUrl) {
