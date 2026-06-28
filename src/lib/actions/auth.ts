@@ -1,7 +1,9 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { LOGIN_ERRORS, toLoginError } from "@/lib/auth-messages";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import type { UserRole } from "@/lib/types";
 
 type SeedAccount = {
@@ -122,21 +124,46 @@ async function seedAccountNeedsBootstrap(account: SeedAccount) {
   return !profile || profile.status !== "active";
 }
 
-export async function bootstrapConfiguredAccount(email: string) {
-  const safeEmail = email.trim().toLowerCase();
-  const seedAccount = resolveSeedAccountByEmail(safeEmail);
+export async function signIn(formData: FormData) {
+  const email = ((formData.get("email") as string | null) ?? "")
+    .trim()
+    .toLowerCase();
+  const password = ((formData.get("password") as string | null) ?? "").trim();
 
-  if (!seedAccount || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return { error: null as string | null };
+  const fail = (message: string): never => {
+    redirect(`/login?error=${encodeURIComponent(message)}`);
+  };
+
+  if (!email || !password) {
+    fail(LOGIN_ERRORS.missingFields);
+  }
+
+  // Create or sync configured admin/draftsperson accounts on first sign-in.
+  const seedAccount = resolveSeedAccountByEmail(email);
+  if (seedAccount && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      if (await seedAccountNeedsBootstrap(seedAccount)) {
+        await ensureSeedAccountReady(seedAccount);
+      }
+    } catch (error) {
+      console.error("Failed to bootstrap configured account", error);
+      fail(toLoginError(error, LOGIN_ERRORS.unavailable));
+    }
   }
 
   try {
-    if (await seedAccountNeedsBootstrap(seedAccount)) {
-      await ensureSeedAccountReady(seedAccount);
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) {
+      fail(toLoginError(error, LOGIN_ERRORS.invalidCredentials));
     }
-    return { error: null as string | null };
   } catch (error) {
-    console.error("Failed to bootstrap configured account", error);
-    return { error: toLoginError(error, LOGIN_ERRORS.unavailable) };
+    console.error("Sign-in request failed", error);
+    fail(LOGIN_ERRORS.unavailable);
   }
+
+  redirect("/projects");
 }

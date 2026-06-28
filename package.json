@@ -4,18 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy --minify",
     "db:setup": "node scripts/apply-supabase-schema.mjs"
   },
   "dependencies": {
-    "@opennextjs/cloudflare": "^1.20.1",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "next": "16.2.9",
+    "pg": "^8.22.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -26,9 +24,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
-    "pg": "^8.22.0",
     "tailwindcss": "^4",
-    "typescript": "^5",
-    "wrangler": "^4.105.0"
+    "typescript": "^5"
   }
 }
