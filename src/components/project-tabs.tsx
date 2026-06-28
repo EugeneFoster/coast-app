@@ -29,6 +29,7 @@ type Tab = "overview" | "gallery";
 
 export function ProjectTabs({
   projectId,
+  name,
   coverUrl,
   description,
   modelUrl,
@@ -38,6 +39,7 @@ export function ProjectTabs({
   weldersSlot,
 }: {
   projectId: string;
+  name: string;
   coverUrl: string | null;
   description: string | null;
   modelUrl: string | null;
@@ -70,6 +72,7 @@ export function ProjectTabs({
 
       {tab === "overview" ? (
         <OverviewPanel
+          name={name}
           coverUrl={coverUrl}
           description={description}
           modelUrl={modelUrl}
@@ -88,12 +91,14 @@ export function ProjectTabs({
 }
 
 function OverviewPanel({
+  name,
   coverUrl,
   description,
   modelUrl,
   drawings,
   weldersSlot,
 }: {
+  name: string;
   coverUrl: string | null;
   description: string | null;
   modelUrl: string | null;
@@ -102,16 +107,24 @@ function OverviewPanel({
 }) {
   return (
     <div className="mt-6 space-y-8">
-      {coverUrl && (
-        <section className="overflow-hidden rounded border border-rule bg-paper">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={coverUrl}
-            alt=""
-            className="max-h-80 w-full object-cover"
-          />
-        </section>
-      )}
+      <section className="grid gap-6 md:grid-cols-2 md:items-start">
+        {coverUrl && (
+          <div className="overflow-hidden rounded border border-rule">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={coverUrl} alt={`${name} cover`} className="h-auto w-full" />
+          </div>
+        )}
+        <div>
+          <h2 className="font-display text-2xl font-medium text-ink">{name}</h2>
+          {description ? (
+            <p className="mt-3 whitespace-pre-wrap text-sm text-graph">
+              {description}
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-graph">No description.</p>
+          )}
+        </div>
+      </section>
 
       {modelUrl && (
         <section>
@@ -119,15 +132,6 @@ function OverviewPanel({
           <div className="mt-4">
             <ModelPreview src={modelUrl} />
           </div>
-        </section>
-      )}
-
-      {description && (
-        <section>
-          <h2 className="text-sm font-medium text-ink">Description</h2>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-graph">
-            {description}
-          </p>
         </section>
       )}
 
@@ -162,10 +166,6 @@ function OverviewPanel({
             ))}
           </div>
         </section>
-      )}
-
-      {!coverUrl && !modelUrl && !description && drawings.length === 0 && (
-        <p className="text-sm text-graph">No overview content yet.</p>
       )}
 
       {weldersSlot}

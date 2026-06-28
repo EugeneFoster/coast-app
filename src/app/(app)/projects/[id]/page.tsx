@@ -217,6 +217,7 @@ export default async function ProjectPage({
 
       <ProjectTabs
         projectId={id}
+        name={project.name}
         coverUrl={coverUrl}
         description={project.description}
         modelUrl={modelUrl}
