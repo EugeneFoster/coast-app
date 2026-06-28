@@ -114,7 +114,7 @@ function OverviewPanel({
       )}
 
       {modelUrl && (
-        <section className="rounded border border-rule bg-paper p-6">
+        <section>
           <h2 className="font-display text-lg font-medium text-ink">3D model</h2>
           <div className="mt-4">
             <ModelPreview src={modelUrl} />
@@ -123,7 +123,7 @@ function OverviewPanel({
       )}
 
       {description && (
-        <section className="rounded border border-rule bg-paper p-6">
+        <section>
           <h2 className="text-sm font-medium text-ink">Description</h2>
           <p className="mt-2 whitespace-pre-wrap text-sm text-graph">
             {description}
@@ -132,7 +132,7 @@ function OverviewPanel({
       )}
 
       {drawings.length > 0 && (
-        <section className="rounded border border-rule bg-paper p-6">
+        <section>
           <h2 className="font-display text-lg font-medium text-ink">
             Drawings{" "}
             <span className="font-mono text-sm text-graph">
