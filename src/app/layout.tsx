@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Oswald, JetBrains_Mono } from "next/font/google";
-import { ServiceWorkerRegister } from "@/components/service-worker-register";
+import { ServiceWorkerCleanup } from "@/components/service-worker-cleanup";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -47,7 +47,7 @@ export default function RootLayout({
     >
       <body className="min-h-full font-sans antialiased">
         <ThemeProvider>{children}</ThemeProvider>
-        <ServiceWorkerRegister />
+        <ServiceWorkerCleanup />
       </body>
     </html>
   );
