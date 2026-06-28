@@ -37,10 +37,10 @@ npm run db:setup
 
 ## Deploy (Railway)
 
-The repo is configured for Railway via `railway.json` (Nixpacks builder):
+Railway builds with Nixpacks (auto-detected):
 
-- **Build**: `next build` (Nixpacks auto-detects)
-- **Start**: `next start` (binds to Railway's `$PORT`)
+- **Build**: `npm run build` (`next build`)
+- **Start**: `npm run start` (`next start`, binds to Railway's `$PORT`)
 
 Railway auto-deploys on every push to `main` via the connected GitHub repo.
 
