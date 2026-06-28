@@ -1,0 +1,17 @@
+{
+  "name": "coast-tiling-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "COAST deep-zoom tiling worker: PDF -> DZI tile pyramids -> R2",
+  "scripts": {
+    "start": "node src/index.js",
+    "process:once": "node src/run-once.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.654.0",
+    "@supabase/supabase-js": "^2.108.2",
+    "bullmq": "^5.34.0",
+    "ioredis": "^5.4.1"
+  }
+}
