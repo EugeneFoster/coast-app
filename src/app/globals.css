@@ -80,9 +80,14 @@ body {
   background-color: var(--bp-base);
 }
 
-/* Sidebar surface: a couple tones lighter than the backdrop */
+/* Sidebar surface: always dark blueprint in both themes.
+   Scoped token overrides flip text/border utilities to light. */
 .blueprint-panel {
-  background-color: var(--bp-panel);
+  --bp-minor: rgba(150, 190, 230, 0.08);
+  --bp-major: rgba(150, 190, 230, 0.18);
+  --ink: #eef2f7;
+  --rule: rgba(238, 242, 247, 0.12);
+  background-color: #16283f;
 }
 
 .font-display {
