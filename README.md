@@ -40,11 +40,21 @@ npm run db:setup
 The repo is configured for Railway via `railway.json` (Nixpacks builder):
 
 - **Build**: `next build` (Nixpacks auto-detects)
-- **Pre-deploy**: `node scripts/apply-supabase-schema.mjs` — applies `supabase/setup-all.sql`
-  (first run) and `supabase/migrate.sql` (idempotent migrations + demo seed) on every deploy
 - **Start**: `next start` (binds to Railway's `$PORT`)
 
 Railway auto-deploys on every push to `main` via the connected GitHub repo.
+
+### Database schema
+
+The Supabase schema and demo seed are applied with:
+
+```bash
+npm run db:setup   # runs scripts/apply-supabase-schema.mjs
+```
+
+Run this once (or after editing `supabase/migrate.sql`) with `SUPABASE_DB_PASSWORD`
+set. It is intentionally **not** part of the deploy so a transient DB hiccup can
+never block an app deploy.
 
 ### Required Railway Variables
 
