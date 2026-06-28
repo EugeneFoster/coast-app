@@ -131,7 +131,7 @@ export async function signIn(formData: FormData) {
     if (error) {
       if (seedAccount) {
         redirectWithError(
-          "Invalid password for configured account. Use the password from GitHub secrets.",
+          "Invalid password for configured account.",
         );
       }
       redirectWithError("Invalid email or password.");
