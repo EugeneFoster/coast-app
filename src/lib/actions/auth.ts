@@ -12,11 +12,11 @@ type SeedAccount = {
   fullName: string;
 };
 
-function resolveSeedAccount(email: string, password: string): SeedAccount | null {
+function readSeedAccounts(): SeedAccount[] {
   const adminEmail = process.env.ADMIN_LOGIN?.trim().toLowerCase();
-  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminPassword = process.env.ADMIN_PASSWORD?.trim();
   const drawEmail = process.env.DRAW_LOGIN?.trim().toLowerCase();
-  const drawPassword = process.env.DRAW_PASSWORD;
+  const drawPassword = process.env.DRAW_PASSWORD?.trim();
 
   const configuredAccounts: SeedAccount[] = [];
 
@@ -38,11 +38,11 @@ function resolveSeedAccount(email: string, password: string): SeedAccount | null
     });
   }
 
-  return (
-    configuredAccounts.find(
-      (account) => account.email === email && account.password === password,
-    ) ?? null
-  );
+  return configuredAccounts;
+}
+
+function resolveSeedAccountByEmail(email: string): SeedAccount | null {
+  return readSeedAccounts().find((account) => account.email === email) ?? null;
 }
 
 async function ensureSeedAccountReady(account: SeedAccount) {
@@ -99,7 +99,7 @@ async function ensureSeedAccountReady(account: SeedAccount) {
 export async function signIn(formData: FormData) {
   const email = (formData.get("email") as string | null)?.trim().toLowerCase();
   const safeEmail = email ?? "";
-  const password = (formData.get("password") as string | null) ?? "";
+  const password = ((formData.get("password") as string | null) ?? "").trim();
 
   const redirectWithError = (message: string): never => {
     redirect(`/login?error=${encodeURIComponent(message)}`);
@@ -109,14 +109,16 @@ export async function signIn(formData: FormData) {
     redirectWithError("Enter email and password.");
   }
 
-  const seedAccount = resolveSeedAccount(safeEmail, password);
+  const seedAccount = resolveSeedAccountByEmail(safeEmail);
 
   if (seedAccount && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
       await ensureSeedAccountReady(seedAccount);
     } catch (error) {
       console.error("Failed to bootstrap configured account", error);
-      redirectWithError("Account setup failed. Please try again.");
+      const message =
+        error instanceof Error ? error.message : "Account setup failed.";
+      redirectWithError(`Account setup failed: ${message}`);
     }
   }
 
@@ -127,6 +129,11 @@ export async function signIn(formData: FormData) {
       password,
     });
     if (error) {
+      if (seedAccount) {
+        redirectWithError(
+          "Invalid password for configured account. Use the password from GitHub secrets.",
+        );
+      }
       redirectWithError("Invalid email or password.");
     }
   } catch (error) {
