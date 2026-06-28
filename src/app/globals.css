@@ -9,10 +9,12 @@
   --weld: #cb5530;
 
   /* Blueprint backdrop */
-  --bp-base: #e9f0f7;
-  --bp-panel: #f2f6fb;
-  --bp-minor: rgba(37, 99, 162, 0.09);
-  --bp-major: rgba(37, 99, 162, 0.2);
+  --bp-base: #e4ebf2;
+  --bp-panel: #eef3f9;
+  --bp-minor: rgba(46, 86, 140, 0.022);
+  --bp-major: rgba(46, 86, 140, 0.06);
+  --bp-overlay: rgba(20, 40, 70, 0.04);
+  --bp-major-size: 132px;
 }
 
 .dark {
@@ -23,11 +25,13 @@
   --rule: #2e2f34;
   --weld: #e0673c;
 
-  /* Blueprint backdrop */
-  --bp-base: #0d1a2b;
-  --bp-panel: #15273d;
-  --bp-minor: rgba(120, 170, 220, 0.07);
-  --bp-major: rgba(120, 170, 220, 0.16);
+  /* Blueprint backdrop — darker, less saturated, muted grid */
+  --bp-base: #0b1420;
+  --bp-panel: #11202f;
+  --bp-minor: rgba(125, 160, 200, 0.022);
+  --bp-major: rgba(125, 160, 200, 0.055);
+  --bp-overlay: rgba(4, 10, 18, 0.3);
+  --bp-major-size: 132px;
 }
 
 @theme inline {
@@ -46,17 +50,26 @@
 body {
   color: var(--ink);
   background-color: var(--bp-base);
+  /* A flat overlay sits above the grid (improves card contrast); the two
+     minor lines are far fainter than the wider-spaced major lines. */
   background-image:
+    linear-gradient(var(--bp-overlay), var(--bp-overlay)),
     linear-gradient(var(--bp-minor) 1px, transparent 1px),
     linear-gradient(90deg, var(--bp-minor) 1px, transparent 1px),
     linear-gradient(var(--bp-major) 1px, transparent 1px),
     linear-gradient(90deg, var(--bp-major) 1px, transparent 1px);
   background-size:
+    100% 100%,
     22px 22px,
     22px 22px,
-    110px 110px,
-    110px 110px;
-  background-position: -1px -1px;
+    var(--bp-major-size) var(--bp-major-size),
+    var(--bp-major-size) var(--bp-major-size);
+  background-position:
+    0 0,
+    -1px -1px,
+    -1px -1px,
+    -1px -1px,
+    -1px -1px;
   background-attachment: fixed;
 }
 
@@ -64,16 +77,23 @@ body {
 .blueprint,
 .blueprint-panel {
   background-image:
+    linear-gradient(var(--bp-overlay), var(--bp-overlay)),
     linear-gradient(var(--bp-minor) 1px, transparent 1px),
     linear-gradient(90deg, var(--bp-minor) 1px, transparent 1px),
     linear-gradient(var(--bp-major) 1px, transparent 1px),
     linear-gradient(90deg, var(--bp-major) 1px, transparent 1px);
   background-size:
+    100% 100%,
     22px 22px,
     22px 22px,
-    110px 110px,
-    110px 110px;
-  background-position: -1px -1px;
+    var(--bp-major-size) var(--bp-major-size),
+    var(--bp-major-size) var(--bp-major-size);
+  background-position:
+    0 0,
+    -1px -1px,
+    -1px -1px,
+    -1px -1px,
+    -1px -1px;
 }
 
 .blueprint {
@@ -83,11 +103,12 @@ body {
 /* Sidebar surface: always dark blueprint in both themes.
    Scoped token overrides flip text/border utilities to light. */
 .blueprint-panel {
-  --bp-minor: rgba(150, 190, 230, 0.08);
-  --bp-major: rgba(150, 190, 230, 0.18);
+  --bp-minor: rgba(150, 185, 225, 0.03);
+  --bp-major: rgba(150, 185, 225, 0.07);
+  --bp-overlay: rgba(0, 0, 0, 0);
   --ink: #eef2f7;
-  --rule: rgba(238, 242, 247, 0.12);
-  background-color: #16283f;
+  --rule: rgba(238, 242, 247, 0.1);
+  background-color: #13212f;
 }
 
 .font-display {
