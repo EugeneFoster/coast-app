@@ -1,7 +1,6 @@
 "use server";
 
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { LOGIN_ERRORS, toLoginError } from "@/lib/auth-messages";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { UserRole } from "@/lib/types";
 
@@ -96,62 +95,48 @@ async function ensureSeedAccountReady(account: SeedAccount) {
   if (profileError) throw new Error(profileError.message);
 }
 
-export async function signIn(formData: FormData) {
-  const email = (formData.get("email") as string | null)?.trim().toLowerCase();
-  const safeEmail = email ?? "";
-  const password = ((formData.get("password") as string | null) ?? "").trim();
+async function seedAccountNeedsBootstrap(account: SeedAccount) {
+  const admin = createAdminClient();
 
-  const redirectWithError = (message: string): never => {
-    redirect(`/login?error=${encodeURIComponent(message)}`);
-  };
+  const { data: usersData, error: usersError } = await admin.auth.admin.listUsers({
+    page: 1,
+    perPage: 200,
+  });
+  if (usersError) throw new Error(usersError.message);
 
-  if (!safeEmail || !password) {
-    redirectWithError("Enter email and password.");
-  }
+  const userId =
+    usersData.users.find(
+      (user) => user.email?.trim().toLowerCase() === account.email,
+    )?.id ?? null;
 
+  if (!userId) return true;
+
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .select("status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (profileError) throw new Error(profileError.message);
+
+  return !profile || profile.status !== "active";
+}
+
+export async function bootstrapConfiguredAccount(email: string) {
+  const safeEmail = email.trim().toLowerCase();
   const seedAccount = resolveSeedAccountByEmail(safeEmail);
 
-  if (seedAccount && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    try {
-      await ensureSeedAccountReady(seedAccount);
-    } catch (error) {
-      console.error("Failed to bootstrap configured account", error);
-      const message =
-        error instanceof Error ? error.message : "Account setup failed.";
-
-      if (
-        message.includes("Could not find the table") ||
-        message.includes("schema cache")
-      ) {
-        redirectWithError(
-          "Database is not initialized yet. Add SUPABASE_DB_PASSWORD to GitHub secrets and redeploy.",
-        );
-      }
-
-      redirectWithError(`Account setup failed: ${message}`);
-    }
+  if (!seedAccount || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return { error: null as string | null };
   }
 
   try {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.signInWithPassword({
-      email: safeEmail,
-      password,
-    });
-    if (error) {
-      if (seedAccount) {
-        redirectWithError(
-          "Invalid password for configured account.",
-        );
-      }
-      redirectWithError("Invalid email or password.");
+    if (await seedAccountNeedsBootstrap(seedAccount)) {
+      await ensureSeedAccountReady(seedAccount);
     }
+    return { error: null as string | null };
   } catch (error) {
-    console.error("Sign-in request failed", error);
-    redirectWithError(
-      "Sign in failed. Check Supabase URL/ANON key and try again.",
-    );
+    console.error("Failed to bootstrap configured account", error);
+    return { error: toLoginError(error, LOGIN_ERRORS.unavailable) };
   }
-
-  redirect("/projects");
 }
