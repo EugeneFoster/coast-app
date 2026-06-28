@@ -12,15 +12,14 @@ Field app foundation slice: authentication, role-based access, and project CRUD.
 ## Getting started
 
 1. Copy `.env.example` to `.env.local` and fill in Supabase credentials.
-2. Run migrations in `supabase/migrations/` against your Supabase project.
-3. Create the first admin user manually in Supabase Auth, then insert a profile row:
+2. Run database setup in Supabase **SQL Editor**:
+   - open `supabase/setup-all.sql`
+   - paste the full file into SQL Editor
+   - click **Run**
+3. Deploy the app (GitHub Actions or `npm run deploy`).
+   Configured accounts (`ADMIN_*`, `DRAW_*`) are created automatically on first login after SQL setup.
 
-```sql
-insert into public.profiles (id, login, role, status, full_name)
-values ('<auth-user-uuid>', 'admin@example.com', 'owner', 'active', 'Admin');
-```
-
-4. Install and run:
+4. Install and run locally:
 
 ```bash
 npm install
