@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import Image from "next/image";
 import type { Profile } from "@/lib/types";
 import { signOut } from "@/lib/actions/session";
 
 const navItems: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: "/projects", label: "Projects" },
+  { href: "/chat", label: "Chat" },
+  { href: "/library", label: "Library" },
+  { href: "/archive", label: "Archive" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -36,10 +38,12 @@ export function Sidebar({
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-rule bg-ink text-bone">
       <div className="border-b border-rule/20 px-5 py-6">
-        <p className="font-display text-xl font-semibold tracking-wide uppercase">
+        <p className="font-display text-2xl font-semibold uppercase tracking-[0.35em]">
           COAST
         </p>
-        <p className="text-xs text-bone/60">metal works</p>
+        <p className="mt-1 text-[0.7rem] uppercase tracking-[0.3em] text-bone/50">
+          metal works
+        </p>
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
@@ -71,7 +75,8 @@ export function Sidebar({
       <div className="border-t border-rule/20 px-4 py-4">
         <div className="flex items-center gap-3">
           {profile.avatar_url ? (
-            <Image
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
               src={profile.avatar_url}
               alt=""
               width={32}

@@ -24,6 +24,8 @@ export interface Client {
   created_at: string;
 }
 
+export type StructureType = "dock" | "wharf" | "pontoon" | "ramp" | "other";
+
 export interface Project {
   id: string;
   name: string;
@@ -31,6 +33,9 @@ export interface Project {
   description: string | null;
   status: ProjectStatus;
   cover_url: string | null;
+  revision: number;
+  drawing_count: number;
+  structure_type: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

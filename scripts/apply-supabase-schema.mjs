@@ -143,14 +143,20 @@ async function schemaExistsOnClient(client) {
   return Boolean(result.rows[0]?.table_name);
 }
 
-async function applyWithClient(client, sql) {
+async function applyWithClient(client, baseSql, migrateSql) {
   if (await schemaExistsOnClient(client)) {
-    console.log("Supabase schema already exists. Skipping setup.");
-    return;
+    console.log("Base schema present. Skipping base setup.");
+  } else {
+    console.log("Applying Supabase base schema...");
+    await client.query(baseSql);
+    console.log("Supabase base schema applied.");
   }
-  console.log("Applying Supabase schema...");
-  await client.query(sql);
-  console.log("Supabase schema applied.");
+
+  if (migrateSql) {
+    console.log("Applying idempotent migrations + demo seed...");
+    await client.query(migrateSql);
+    console.log("Migrations applied.");
+  }
 }
 
 async function applyViaManagementApi(projectRef, accessToken, sql) {
@@ -173,6 +179,14 @@ async function applyViaManagementApi(projectRef, accessToken, sql) {
   console.log("Supabase schema applied via Management API.");
 }
 
+function readSqlOptional(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -181,21 +195,9 @@ async function main() {
     throw new Error("NEXT_PUBLIC_SUPABASE_URL is required.");
   }
 
-  if (serviceRoleKey) {
-    try {
-      if (await schemaExistsViaServiceRole(supabaseUrl, serviceRoleKey)) {
-        console.log("Supabase schema already exists. Skipping setup.");
-        return;
-      }
-    } catch (error) {
-      console.warn(
-        `Could not verify schema via service role: ${error.message ?? error}`,
-      );
-    }
-  }
-
   const ref = getProjectRef(supabaseUrl);
-  const sql = readFileSync("supabase/setup-all.sql", "utf8");
+  const baseSql = readFileSync("supabase/setup-all.sql", "utf8");
+  const migrateSql = readSqlOptional("supabase/migrate.sql");
   const password = process.env.SUPABASE_DB_PASSWORD?.trim();
   const databaseUrl = process.env.DATABASE_URL?.trim();
   const accessToken = process.env.SUPABASE_ACCESS_TOKEN?.trim();
@@ -204,7 +206,7 @@ async function main() {
   if (databaseUrl) {
     const client = await connectFromDatabaseUrl(databaseUrl);
     try {
-      await applyWithClient(client, sql);
+      await applyWithClient(client, baseSql, migrateSql);
     } finally {
       await client.end();
     }
@@ -227,7 +229,7 @@ async function main() {
 
     if (client) {
       try {
-        await applyWithClient(client, sql);
+        await applyWithClient(client, baseSql, migrateSql);
       } finally {
         await client.end();
       }
@@ -243,8 +245,32 @@ async function main() {
 
   // 3. Management API with personal access token.
   if (accessToken) {
-    await applyViaManagementApi(ref, accessToken, sql);
+    let baseExists = false;
+    if (serviceRoleKey) {
+      try {
+        baseExists = await schemaExistsViaServiceRole(supabaseUrl, serviceRoleKey);
+      } catch {}
+    }
+    if (!baseExists) {
+      await applyViaManagementApi(ref, accessToken, baseSql);
+    }
+    if (migrateSql) {
+      await applyViaManagementApi(ref, accessToken, migrateSql);
+    }
     return;
+  }
+
+  // 4. No DB credentials: can only verify, not migrate.
+  if (serviceRoleKey) {
+    try {
+      if (await schemaExistsViaServiceRole(supabaseUrl, serviceRoleKey)) {
+        console.warn(
+          "::warning::Base schema exists but no DB credentials are available to run migrations/seed. " +
+            "Add SUPABASE_DB_PASSWORD to GitHub secrets to apply updates.",
+        );
+        return;
+      }
+    } catch {}
   }
 
   console.warn(
