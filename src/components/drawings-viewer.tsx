@@ -404,22 +404,63 @@ function SheetViewer({
   }
 
   if (!ready) {
+    // While tiling is pending (or if the tiling worker isn't running yet),
+    // show the original PDF inline so the drawing is immediately readable.
+    // The realtime subscription flips this to deep zoom once tiles are ready.
     return (
-      <div className="flex flex-col items-center justify-center rounded border border-dashed border-rule py-16 text-center">
-        <p className="font-display text-lg text-ink">Preparing sheets…</p>
-        <p className="mt-2 max-w-sm text-sm text-graph">
-          The drawing is being tiled for deep zoom. This view updates
-          automatically when it&apos;s ready.
-        </p>
-        {file.pdfUrl && (
-          <a
-            href={file.pdfUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-4 text-xs text-graph underline hover:text-weld"
-          >
-            Open original PDF ↗
-          </a>
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-rule bg-bone px-3 py-2 text-xs text-graph">
+          <span className="flex items-center gap-2">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-rule border-t-weld" />
+            Preparing deep-zoom tiles… showing the original PDF for now.
+          </span>
+          {file.pdfUrl && (
+            <a
+              href={file.pdfUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-weld"
+            >
+              Open PDF ↗
+            </a>
+          )}
+        </div>
+
+        {file.pdfUrl ? (
+          <iframe
+            src={file.pdfUrl}
+            title={file.name}
+            className="mt-3 h-[70vh] w-full rounded border border-rule bg-ink/[0.03] dark:bg-paper/[0.04]"
+          />
+        ) : (
+          <div className="mt-3 flex flex-col items-center justify-center rounded border border-dashed border-rule py-16 text-center">
+            <p className="font-display text-lg text-ink">Preparing sheets…</p>
+            <p className="mt-2 max-w-sm text-sm text-graph">
+              The drawing is being tiled for deep zoom. This view updates
+              automatically when it&apos;s ready.
+            </p>
+          </div>
+        )}
+
+        {canManage && (
+          <div className="mt-3">
+            <input
+              ref={revisionInputRef}
+              type="file"
+              accept="application/pdf"
+              hidden
+              onChange={(e) => onRevisionFile(e.target.files)}
+            />
+            <button
+              type="button"
+              disabled={revBusy}
+              onClick={() => revisionInputRef.current?.click()}
+              className="rounded border border-rule px-3 py-1.5 text-xs text-ink hover:border-weld disabled:opacity-60"
+            >
+              {revBusy ? "Uploading…" : "Re-upload / new revision"}
+            </button>
+            {revError && <p className="mt-2 text-xs text-weld">{revError}</p>}
+          </div>
         )}
       </div>
     );
