@@ -7,9 +7,10 @@ import { StatusChip } from "@/components/status-chip";
 import { StatusSelect } from "@/components/status-select";
 import { ProjectNameEditor } from "@/components/project-name-editor";
 import { ProjectKebab } from "@/components/project-kebab";
+import { ShareControl } from "@/components/share-control";
 import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
-import type { DrawingPin, PinComment, Task } from "@/lib/types";
+import type { DrawingPin, PinComment, Task, TimeLog } from "@/lib/types";
 
 type ProfileLite = {
   id: string;
@@ -40,6 +41,16 @@ export default async function ProjectPage({
     .single();
 
   if (!project) notFound();
+
+  let signedOffBy: string | null = null;
+  if (project.completed_at && project.completed_by) {
+    const { data: signer } = await adminClient
+      .from("profiles")
+      .select("full_name, login")
+      .eq("id", project.completed_by)
+      .maybeSingle();
+    signedOffBy = signer ? (signer.full_name ?? signer.login) : null;
+  }
 
   const { data: members } = await supabase
     .from("project_members")
@@ -246,6 +257,43 @@ export default async function ProjectPage({
     };
   });
 
+  // Time logs (Phase 4): admins see all entries for the project, welders see
+  // only their own.
+  type TimeRow = {
+    id: string;
+    minutes: number;
+    work_date: string;
+    note: string | null;
+    task_id: string | null;
+    profile_id: string | null;
+    created_at: string;
+    author: ProfileLite | ProfileLite[] | null;
+  };
+  let timeQuery = adminClient
+    .from("time_logs")
+    .select(
+      "id, minutes, work_date, note, task_id, profile_id, created_at, author:profile_id(full_name, login)",
+    )
+    .eq("project_id", id);
+  if (!admin) timeQuery = timeQuery.eq("profile_id", profile.id);
+  const { data: logRows } = await timeQuery.order("work_date", {
+    ascending: false,
+  });
+  const timeLogs: TimeLog[] = ((logRows ?? []) as TimeRow[]).map((l) => {
+    const raw = Array.isArray(l.author) ? l.author[0] : l.author;
+    return {
+      id: l.id,
+      minutes: l.minutes,
+      workDate: l.work_date,
+      note: l.note,
+      author: authorName(raw),
+      authorId: l.profile_id,
+      taskId: l.task_id,
+      createdAt: l.created_at,
+    };
+  });
+  const totalMinutes = timeLogs.reduce((s, l) => s + (l.minutes ?? 0), 0);
+
   // People who can be assigned tasks: the project's assigned members.
   const memberOptions = (members ?? []).flatMap((m) => {
     const raw = m.profiles;
@@ -288,6 +336,7 @@ export default async function ProjectPage({
   }
 
   const weldersSlot = admin ? (
+    <>
     <section className="border-t border-rule pt-6">
       <h2 className="font-display text-lg font-medium text-ink">
         Assigned welders
@@ -347,6 +396,8 @@ export default async function ProjectPage({
         </form>
       )}
     </section>
+    <ShareControl projectId={id} initialToken={project.share_token ?? null} />
+    </>
   ) : null;
 
   return (
@@ -378,6 +429,13 @@ export default async function ProjectPage({
         <span className="font-mono text-sm text-graph">
           Updated {new Date(project.updated_at).toLocaleDateString("en-CA")}
         </span>
+        {project.completed_at && (
+          <span className="font-mono text-sm text-weld">
+            Signed off{" "}
+            {new Date(project.completed_at).toLocaleDateString("en-CA")}
+            {signedOffBy ? ` · ${signedOffBy}` : ""}
+          </span>
+        )}
       </div>
 
       <ProjectTabs
@@ -390,6 +448,8 @@ export default async function ProjectPage({
         gallery={gallery}
         tasks={tasks}
         members={memberOptions}
+        timeLogs={timeLogs}
+        totalMinutes={totalMinutes}
         canManage={admin}
         canUpload={admin || assignedIds.has(profile.id)}
         currentUserId={profile.id}

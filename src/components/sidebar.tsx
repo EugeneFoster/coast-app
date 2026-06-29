@@ -6,6 +6,7 @@ import type { Profile } from "@/lib/types";
 import { signOut } from "@/lib/actions/session";
 
 const navItems: Array<{ href: string; label: string; adminOnly?: boolean }> = [
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/projects", label: "Projects" },
   { href: "/chat", label: "Chat" },
   { href: "/library", label: "Library" },

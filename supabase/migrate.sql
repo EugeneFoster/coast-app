@@ -420,6 +420,66 @@ begin
   end if;
 end $$;
 
+-- ============================================================================
+-- Phase 4: time logs, project sign-off and a read-only client share token.
+-- ============================================================================
+alter table public.projects add column if not exists completed_by uuid references public.profiles(id);
+alter table public.projects add column if not exists completed_at timestamptz;
+alter table public.projects add column if not exists share_token text unique;
+
+create table if not exists public.time_logs (
+  id         uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  task_id    uuid references public.tasks(id) on delete set null,
+  profile_id uuid references public.profiles(id) on delete set null,
+  minutes    int  not null check (minutes > 0),
+  work_date  date not null default current_date,
+  note       text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists time_logs_project_idx on public.time_logs(project_id);
+create index if not exists time_logs_profile_idx on public.time_logs(profile_id);
+
+alter table public.time_logs enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'time_logs' and policyname = 'time_logs_read'
+  ) then
+    create policy time_logs_read on public.time_logs for select using (
+      public.is_admin() or profile_id = auth.uid()
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'time_logs' and policyname = 'time_logs_insert'
+  ) then
+    create policy time_logs_insert on public.time_logs for insert with check (
+      profile_id = auth.uid()
+      and (
+        public.is_admin()
+        or exists (
+          select 1 from public.project_members m
+          where m.project_id = time_logs.project_id and m.profile_id = auth.uid()
+        )
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'time_logs' and policyname = 'time_logs_delete'
+  ) then
+    create policy time_logs_delete on public.time_logs for delete using (
+      public.is_admin() or profile_id = auth.uid()
+    );
+  end if;
+end $$;
+
 -- Demo data: only when the project table is still empty.
 do $$
 declare

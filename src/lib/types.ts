@@ -38,6 +38,9 @@ export interface Project {
   drawing_count: number;
   structure_type: string | null;
   created_by: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
+  share_token: string | null;
   created_at: string;
   updated_at: string;
   clients?: Client | null;
@@ -81,6 +84,17 @@ export interface Task {
   assigneeName: string | null;
   drawingPinId: string | null;
   dueDate: string | null;
+  createdAt: string;
+}
+
+export interface TimeLog {
+  id: string;
+  minutes: number;
+  workDate: string;
+  note: string | null;
+  author: string;
+  authorId: string | null;
+  taskId: string | null;
   createdAt: string;
 }
 

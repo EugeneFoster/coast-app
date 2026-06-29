@@ -137,17 +137,65 @@ export async function updateProjectStatus(
   projectId: string,
   status: ProjectStatus,
 ) {
-  await requireAdmin();
+  const { user } = await requireAdmin();
   const supabase = await createClient();
+
+  // Record sign-off when a project is marked completed; clear it otherwise.
+  const patch: Record<string, unknown> = { status };
+  if (status === "completed") {
+    patch.completed_by = user.id;
+    patch.completed_at = new Date().toISOString();
+  } else {
+    patch.completed_by = null;
+    patch.completed_at = null;
+  }
 
   const { error } = await supabase
     .from("projects")
-    .update({ status })
+    .update(patch)
     .eq("id", projectId);
 
   if (error) throw new Error(error.message);
   revalidatePath("/projects");
+  revalidatePath("/dashboard");
   revalidatePath(`/projects/${projectId}`);
+}
+
+// Toggle a read-only public client link for a project. Enabling reuses an
+// existing token; disabling clears it.
+export async function setProjectShare(
+  projectId: string,
+  enabled: boolean,
+): Promise<{ token: string | null } | { error: string }> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  if (!enabled) {
+    const { error } = await supabase
+      .from("projects")
+      .update({ share_token: null })
+      .eq("id", projectId);
+    if (error) return { error: error.message };
+    revalidatePath(`/projects/${projectId}`);
+    return { token: null };
+  }
+
+  const { data: existing } = await supabase
+    .from("projects")
+    .select("share_token")
+    .eq("id", projectId)
+    .single();
+
+  const token = existing?.share_token ?? crypto.randomUUID();
+  if (!existing?.share_token) {
+    const { error } = await supabase
+      .from("projects")
+      .update({ share_token: token })
+      .eq("id", projectId);
+    if (error) return { error: error.message };
+  }
+  revalidatePath(`/projects/${projectId}`);
+  return { token };
 }
 
 export async function archiveProject(projectId: string) {

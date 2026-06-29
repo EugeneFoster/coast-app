@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { ModelPreview } from "@/components/model-preview";
 import { DrawingsViewer, type DrawingFile } from "@/components/drawings-viewer";
 import { TasksPanel } from "@/components/tasks-panel";
+import { TimeLogPanel } from "@/components/time-log-panel";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
-import type { Task } from "@/lib/types";
+import type { Task, TimeLog } from "@/lib/types";
 
 type Media = {
   id: string;
@@ -46,6 +47,8 @@ export function ProjectTabs({
   gallery,
   tasks,
   members,
+  timeLogs,
+  totalMinutes,
   canManage,
   canUpload,
   currentUserId,
@@ -60,6 +63,8 @@ export function ProjectTabs({
   gallery: Media[];
   tasks: Task[];
   members: { id: string; name: string }[];
+  timeLogs: TimeLog[];
+  totalMinutes: number;
   canManage: boolean;
   canUpload: boolean;
   currentUserId: string;
@@ -112,12 +117,22 @@ export function ProjectTabs({
         </div>
       )}
       {tab === "tasks" && (
-        <TasksPanel
-          projectId={projectId}
-          tasks={tasks}
-          members={members}
-          canManage={canManage}
-        />
+        <>
+          <TasksPanel
+            projectId={projectId}
+            tasks={tasks}
+            members={members}
+            canManage={canManage}
+          />
+          <TimeLogPanel
+            projectId={projectId}
+            tasks={tasks}
+            logs={timeLogs}
+            totalMinutes={totalMinutes}
+            canViewAll={canManage}
+            currentUserId={currentUserId}
+          />
+        </>
       )}
       {tab === "gallery" && (
         <GalleryPanel
