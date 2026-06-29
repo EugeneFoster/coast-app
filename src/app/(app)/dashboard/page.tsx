@@ -69,7 +69,7 @@ export default async function DashboardPage() {
     ) / 10;
 
     return (
-      <div className="p-8">
+      <div className="p-6 sm:p-8">
         <h1 className="font-display text-3xl font-medium text-ink">Dashboard</h1>
         <p className="mt-2 text-sm text-graph">
           {active.length} active projects.
@@ -150,7 +150,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-6 sm:p-8">
       <h1 className="font-display text-3xl font-medium text-ink">My work</h1>
       <p className="mt-2 text-sm text-graph">
         {myTasks.length} open {myTasks.length === 1 ? "task" : "tasks"} assigned

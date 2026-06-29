@@ -401,7 +401,7 @@ export default async function ProjectPage({
   ) : null;
 
   return (
-    <div className="p-8">
+    <div className="p-6 sm:p-8">
       <Link href="/projects" className="text-sm text-graph hover:text-ink">
         ← Back to projects
       </Link>

@@ -17,7 +17,7 @@ export default async function EmployeesPage() {
   const employees = (data ?? []) as Profile[];
 
   return (
-    <div className="p-8">
+    <div className="p-6 sm:p-8">
       <Link href="/settings" className="text-sm text-graph hover:text-ink">
         ← Back to settings
       </Link>

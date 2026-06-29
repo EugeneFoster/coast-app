@@ -5,7 +5,7 @@ export default async function SettingsPage() {
   const { profile } = await requireUser();
 
   return (
-    <div className="p-8">
+    <div className="p-6 sm:p-8">
       <h1 className="font-display text-3xl font-medium text-ink">Settings</h1>
 
       <div className="mt-8 space-y-4">
