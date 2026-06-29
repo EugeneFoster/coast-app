@@ -9,7 +9,7 @@ import { ProjectNameEditor } from "@/components/project-name-editor";
 import { ProjectKebab } from "@/components/project-kebab";
 import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
-import type { DrawingPin, PinComment } from "@/lib/types";
+import type { DrawingPin, PinComment, Task } from "@/lib/types";
 
 type ProfileLite = {
   id: string;
@@ -211,6 +211,48 @@ export default async function ProjectPage({
     }
   }
 
+  // Tasks (Phase 2) for this project + assignee names.
+  type TaskRow = {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string | null;
+    due_date: string | null;
+    assignee_id: string | null;
+    drawing_pin_id: string | null;
+    created_at: string;
+    assignee: ProfileLite | ProfileLite[] | null;
+  };
+  const { data: taskRows } = await adminClient
+    .from("tasks")
+    .select(
+      "id, title, description, status, due_date, assignee_id, drawing_pin_id, created_at, assignee:assignee_id(full_name, login)",
+    )
+    .eq("project_id", id)
+    .order("created_at");
+  const tasks: Task[] = ((taskRows ?? []) as TaskRow[]).map((t) => {
+    const raw = Array.isArray(t.assignee) ? t.assignee[0] : t.assignee;
+    return {
+      id: t.id,
+      projectId: id,
+      title: t.title,
+      description: t.description,
+      status: (t.status ?? "todo") as Task["status"],
+      assigneeId: t.assignee_id,
+      assigneeName: raw ? authorName(raw) : null,
+      drawingPinId: t.drawing_pin_id,
+      dueDate: t.due_date,
+      createdAt: t.created_at,
+    };
+  });
+
+  // People who can be assigned tasks: the project's assigned members.
+  const memberOptions = (members ?? []).flatMap((m) => {
+    const raw = m.profiles;
+    const p = (Array.isArray(raw) ? raw[0] : raw) as ProfileLite | null;
+    return p ? [{ id: p.id, name: p.full_name ?? p.login }] : [];
+  });
+
   const drawingFiles = drawingRows.map((d, i) => ({
     id: d.id,
     name: d.original_name ?? `Drawing ${i + 1}`,
@@ -346,6 +388,9 @@ export default async function ProjectPage({
         modelUrl={modelUrl}
         drawings={drawingFiles}
         gallery={gallery}
+        tasks={tasks}
+        members={memberOptions}
+        canManage={admin}
         canUpload={admin || assignedIds.has(profile.id)}
         currentUserId={profile.id}
         weldersSlot={weldersSlot}

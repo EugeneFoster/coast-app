@@ -69,6 +69,21 @@ export interface ProjectMember {
   profile_id: string;
 }
 
+export type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
+
+export interface Task {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  drawingPinId: string | null;
+  dueDate: string | null;
+  createdAt: string;
+}
+
 export type PinStatus = "open" | "resolved";
 
 export interface PinComment {

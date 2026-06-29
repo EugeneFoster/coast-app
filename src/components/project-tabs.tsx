@@ -4,8 +4,10 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ModelPreview } from "@/components/model-preview";
 import { DrawingsViewer, type DrawingFile } from "@/components/drawings-viewer";
+import { TasksPanel } from "@/components/tasks-panel";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
+import type { Task } from "@/lib/types";
 
 type Media = {
   id: string;
@@ -25,11 +27,12 @@ function initials(name: string) {
   );
 }
 
-type Tab = "overview" | "drawings" | "gallery";
+type Tab = "overview" | "drawings" | "tasks" | "gallery";
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
   drawings: "Drawings",
+  tasks: "Tasks",
   gallery: "Gallery",
 };
 
@@ -41,6 +44,9 @@ export function ProjectTabs({
   modelUrl,
   drawings,
   gallery,
+  tasks,
+  members,
+  canManage,
   canUpload,
   currentUserId,
   weldersSlot,
@@ -52,6 +58,9 @@ export function ProjectTabs({
   modelUrl: string | null;
   drawings: DrawingFile[];
   gallery: Media[];
+  tasks: Task[];
+  members: { id: string; name: string }[];
+  canManage: boolean;
   canUpload: boolean;
   currentUserId: string;
   weldersSlot?: ReactNode;
@@ -61,7 +70,7 @@ export function ProjectTabs({
   return (
     <div className="mt-8">
       <div className="flex gap-6 border-b border-rule">
-        {(["overview", "drawings", "gallery"] as Tab[]).map((t) => (
+        {(["overview", "drawings", "tasks", "gallery"] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
@@ -100,6 +109,14 @@ export function ProjectTabs({
             <p className="text-sm text-graph">No drawings uploaded.</p>
           )}
         </div>
+      )}
+      {tab === "tasks" && (
+        <TasksPanel
+          projectId={projectId}
+          tasks={tasks}
+          members={members}
+          canManage={canManage}
+        />
       )}
       {tab === "gallery" && (
         <GalleryPanel

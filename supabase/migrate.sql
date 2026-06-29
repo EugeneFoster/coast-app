@@ -344,6 +344,82 @@ begin
   end if;
 end $$;
 
+-- ============================================================================
+-- Phase 2: Tasks / work items. Gives the shop floor a way to report progress
+-- inside the system; owners/drafters assign, welders update status.
+-- ============================================================================
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'task_status') then
+    create type task_status as enum ('todo', 'in_progress', 'blocked', 'done');
+  end if;
+end $$;
+
+create table if not exists public.tasks (
+  id             uuid primary key default gen_random_uuid(),
+  project_id     uuid not null references public.projects(id) on delete cascade,
+  title          text not null,
+  description    text,
+  status         task_status not null default 'todo',
+  assignee_id    uuid references public.profiles(id) on delete set null,
+  drawing_pin_id uuid references public.drawing_pins(id) on delete set null,
+  due_date       date,
+  created_by     uuid references public.profiles(id),
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+create index if not exists tasks_project_idx  on public.tasks(project_id);
+create index if not exists tasks_assignee_idx on public.tasks(assignee_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_trigger where tgname = 'trg_tasks_touch'
+  ) then
+    create trigger trg_tasks_touch before update on public.tasks
+      for each row execute function public.touch_updated_at();
+  end if;
+end $$;
+
+alter table public.tasks enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'tasks' and policyname = 'tasks_read'
+  ) then
+    create policy tasks_read on public.tasks for select using (
+      public.is_admin()
+      or exists (
+        select 1 from public.project_members m
+        where m.project_id = tasks.project_id and m.profile_id = auth.uid()
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'tasks' and policyname = 'tasks_admin'
+  ) then
+    create policy tasks_admin on public.tasks
+      for all using (public.is_admin()) with check (public.is_admin());
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'tasks' and policyname = 'tasks_member_update'
+  ) then
+    create policy tasks_member_update on public.tasks for update using (
+      exists (
+        select 1 from public.project_members m
+        where m.project_id = tasks.project_id and m.profile_id = auth.uid()
+      )
+    );
+  end if;
+end $$;
+
 -- Demo data: only when the project table is still empty.
 do $$
 declare
