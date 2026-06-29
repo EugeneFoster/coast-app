@@ -103,6 +103,7 @@ export function ProjectTabs({
               files={drawings}
               projectId={projectId}
               canAnnotate={canUpload}
+              canManage={canManage}
               currentUserId={currentUserId}
             />
           ) : (

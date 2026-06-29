@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 
 export default async function SettingsPage() {
@@ -27,12 +28,15 @@ export default async function SettingsPage() {
         </div>
 
         {(profile.role === "owner" || profile.role === "draftsperson") && (
-          <div className="rounded border border-rule bg-paper p-6">
+          <Link
+            href="/settings/employees"
+            className="block rounded border border-rule bg-paper p-6 transition-colors hover:border-ink/30"
+          >
             <h2 className="text-sm font-medium text-ink">Employees</h2>
             <p className="mt-1 text-sm text-graph">
-              Employee management is disabled in the free deployment profile.
+              Create accounts and manage roles for drafters and welders →
             </p>
-          </div>
+          </Link>
         )}
       </div>
     </div>

@@ -10,6 +10,7 @@ import {
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { addPinComment, createPin, deletePin, setPinStatus } from "@/lib/actions/pins";
+import { createDrawingRevision } from "@/lib/actions/drawings";
 import type { DrawingPin } from "@/lib/types";
 
 export type DrawingPage = { pageNo: number; width: number; height: number };
@@ -34,11 +35,13 @@ export function DrawingsViewer({
   files,
   projectId,
   canAnnotate,
+  canManage,
   currentUserId,
 }: {
   files: DrawingFile[];
   projectId: string;
   canAnnotate: boolean;
+  canManage: boolean;
   currentUserId: string;
 }) {
   const router = useRouter();
@@ -111,6 +114,7 @@ export function DrawingsViewer({
         file={active}
         projectId={projectId}
         canAnnotate={canAnnotate}
+        canManage={canManage}
         currentUserId={currentUserId}
       />
     </div>
@@ -121,16 +125,55 @@ function SheetViewer({
   file,
   projectId,
   canAnnotate,
+  canManage,
   currentUserId,
 }: {
   file: DrawingFile;
   projectId: string;
   canAnnotate: boolean;
+  canManage: boolean;
   currentUserId: string;
 }) {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
+  const revisionInputRef = useRef<HTMLInputElement>(null);
+  const [revBusy, setRevBusy] = useState(false);
+  const [revError, setRevError] = useState<string | null>(null);
   const ready = file.status === "ready" && file.pages.length > 0;
   const failed = file.status === "failed";
+
+  async function onRevisionFile(files: FileList | null) {
+    const f = files?.[0];
+    if (!f) return;
+    setRevError(null);
+    if (!/\.pdf$/i.test(f.name)) {
+      setRevError("Revision must be a PDF.");
+      return;
+    }
+    setRevBusy(true);
+    try {
+      const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${projectId}/${file.id}/${crypto.randomUUID()}-${safe}`;
+      const { error: upErr } = await supabase.storage
+        .from("project-drawings")
+        .upload(path, f, { contentType: f.type || "application/pdf" });
+      if (upErr) throw new Error(upErr.message);
+
+      const result = await createDrawingRevision({
+        projectId,
+        drawingId: file.id,
+        filePath: path,
+        originalName: f.name,
+      });
+      if ("error" in result) throw new Error(result.error);
+      if (revisionInputRef.current) revisionInputRef.current.value = "";
+      router.refresh();
+    } catch (caught) {
+      setRevError(caught instanceof Error ? caught.message : "Upload failed.");
+    } finally {
+      setRevBusy(false);
+    }
+  }
 
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -325,7 +368,7 @@ function SheetViewer({
   if (failed) {
     return (
       <div className="rounded border border-weld/40 bg-weld/10 px-4 py-6 text-sm text-weld">
-        Sheet processing failed. Re-upload to try again.
+        Sheet processing failed. Upload a new revision to try again.
         {file.pdfUrl && (
           <a
             href={file.pdfUrl}
@@ -335,6 +378,26 @@ function SheetViewer({
           >
             Open original PDF
           </a>
+        )}
+        {canManage && (
+          <div className="mt-3">
+            <input
+              ref={revisionInputRef}
+              type="file"
+              accept="application/pdf"
+              hidden
+              onChange={(e) => onRevisionFile(e.target.files)}
+            />
+            <button
+              type="button"
+              disabled={revBusy}
+              onClick={() => revisionInputRef.current?.click()}
+              className="rounded border border-weld/50 px-3 py-1.5 text-xs text-weld hover:bg-weld/10 disabled:opacity-60"
+            >
+              {revBusy ? "Uploading…" : "Upload new revision"}
+            </button>
+            {revError && <p className="mt-2 text-xs">{revError}</p>}
+          </div>
         )}
       </div>
     );
@@ -372,10 +435,30 @@ function SheetViewer({
           <div className="flex items-center gap-3">
             <span className="truncate text-sm text-ink">{file.name}</span>
             <span className="font-mono text-xs text-graph">
-              Sheet {pageIdx + 1} / {file.pages.length}
+              rev{file.version} · Sheet {pageIdx + 1} / {file.pages.length}
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {canManage && (
+              <>
+                <input
+                  ref={revisionInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  hidden
+                  onChange={(e) => onRevisionFile(e.target.files)}
+                />
+                <button
+                  type="button"
+                  disabled={revBusy}
+                  onClick={() => revisionInputRef.current?.click()}
+                  title="Upload a new revision of this drawing"
+                  className="rounded border border-rule px-3 py-1 text-sm text-ink hover:border-weld disabled:opacity-60"
+                >
+                  {revBusy ? "Uploading…" : "New revision"}
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => zoomBy(0.8)}
@@ -425,6 +508,12 @@ function SheetViewer({
         {askMode && (
           <p className="mt-3 rounded border border-weld/40 bg-weld/10 px-3 py-2 text-xs text-weld">
             Drag a rectangle over the area you want to ask about.
+          </p>
+        )}
+
+        {revError && (
+          <p className="mt-3 rounded border border-weld/40 bg-weld/10 px-3 py-2 text-xs text-weld">
+            {revError}
           </p>
         )}
 
