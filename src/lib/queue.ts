@@ -1,5 +1,7 @@
-// Enqueue tiling jobs for the Railway worker. No-op when REDIS_URL is absent,
-// so uploads never break before the worker/Redis infra exists.
+// Optional Redis/BullMQ enqueue for the legacy queue worker (worker/src/index.js).
+// No-op when REDIS_URL is absent — which is the default: the worker now polls
+// Postgres for drawings in 'processing' state (worker/src/poll.js), so enqueueing
+// is unnecessary and uploads never depend on a broker being present.
 import type { ConnectionOptions, Queue } from "bullmq";
 
 let queue: Queue | null = null;

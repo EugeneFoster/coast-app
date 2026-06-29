@@ -17,8 +17,12 @@ export const env = {
   r2AccessKeyId: required("R2_ACCESS_KEY_ID"),
   r2SecretAccessKey: required("R2_SECRET_ACCESS_KEY"),
 
-  redisUrl: required("REDIS_URL"),
+  // Redis is OPTIONAL. The default worker mode (poll.js) claims work straight
+  // from Postgres (drawings.status = 'processing'), so no broker is needed.
+  // Redis is only used by the legacy queue mode (index.js).
+  redisUrl: process.env.REDIS_URL,
   queueName: process.env.QUEUE_NAME || "tile",
+  pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || 5000),
 
   // Tiling tuning.
   targetLongEdge: Number(process.env.TILE_TARGET_LONG_EDGE || 6000),

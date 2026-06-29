@@ -16,4 +16,6 @@ RUN npm install --omit=dev
 COPY src ./src
 
 ENV NODE_ENV=production
-CMD ["node", "src/index.js"]
+# Default: Redis-free polling worker. For the legacy queue mode, override the
+# command with: node src/index.js (and set REDIS_URL).
+CMD ["node", "src/poll.js"]
