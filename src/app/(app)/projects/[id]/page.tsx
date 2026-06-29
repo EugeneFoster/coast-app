@@ -7,8 +7,10 @@ import { StatusChip } from "@/components/status-chip";
 import { StatusSelect } from "@/components/status-select";
 import { ProjectNameEditor } from "@/components/project-name-editor";
 import { ProjectKebab } from "@/components/project-kebab";
+import { ShareControl } from "@/components/share-control";
 import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
+import type { DrawingPin, PinComment, Task, TimeLog } from "@/lib/types";
 
 type ProfileLite = {
   id: string;
@@ -39,6 +41,16 @@ export default async function ProjectPage({
     .single();
 
   if (!project) notFound();
+
+  let signedOffBy: string | null = null;
+  if (project.completed_at && project.completed_by) {
+    const { data: signer } = await adminClient
+      .from("profiles")
+      .select("full_name, login")
+      .eq("id", project.completed_by)
+      .maybeSingle();
+    signedOffBy = signer ? (signer.full_name ?? signer.login) : null;
+  }
 
   const { data: members } = await supabase
     .from("project_members")
@@ -129,6 +141,166 @@ export default async function ProjectPage({
     });
   }
 
+  // Drawing pins (anchored annotations / questions) + their comment threads.
+  type PinRow = {
+    id: string;
+    drawing_id: string;
+    version: number | null;
+    page_no: number;
+    bx: number;
+    by: number;
+    bw: number;
+    bh: number;
+    body: string | null;
+    status: string | null;
+    created_by: string | null;
+    created_at: string;
+    author: ProfileLite | ProfileLite[] | null;
+  };
+  type PinCommentRow = {
+    id: string;
+    pin_id: string;
+    body: string;
+    created_by: string | null;
+    created_at: string;
+    author: ProfileLite | ProfileLite[] | null;
+  };
+
+  const pinsByDrawing = new Map<string, DrawingPin[]>();
+  if (drawingRows.length > 0) {
+    const { data: pinRows } = await adminClient
+      .from("drawing_pins")
+      .select(
+        "id, drawing_id, version, page_no, bx, by, bw, bh, body, status, created_by, created_at, author:created_by(full_name, login)",
+      )
+      .eq("project_id", id)
+      .order("created_at");
+
+    const rows = (pinRows ?? []) as PinRow[];
+    const pinIds = rows.map((p) => p.id);
+
+    const commentsByPin = new Map<string, PinComment[]>();
+    if (pinIds.length > 0) {
+      const { data: commentRows } = await adminClient
+        .from("pin_comments")
+        .select(
+          "id, pin_id, body, created_by, created_at, author:created_by(full_name, login)",
+        )
+        .in("pin_id", pinIds)
+        .order("created_at");
+      for (const c of (commentRows ?? []) as PinCommentRow[]) {
+        const raw = Array.isArray(c.author) ? c.author[0] : c.author;
+        const list = commentsByPin.get(c.pin_id) ?? [];
+        list.push({
+          id: c.id,
+          body: c.body,
+          author: authorName(raw),
+          authorId: c.created_by,
+          createdAt: c.created_at,
+        });
+        commentsByPin.set(c.pin_id, list);
+      }
+    }
+
+    for (const p of rows) {
+      const raw = Array.isArray(p.author) ? p.author[0] : p.author;
+      const list = pinsByDrawing.get(p.drawing_id) ?? [];
+      list.push({
+        id: p.id,
+        drawingId: p.drawing_id,
+        version: p.version ?? 1,
+        pageNo: p.page_no,
+        bbox: { x: p.bx, y: p.by, w: p.bw, h: p.bh },
+        body: p.body,
+        status: (p.status ?? "open") as DrawingPin["status"],
+        author: authorName(raw),
+        authorId: p.created_by,
+        createdAt: p.created_at,
+        comments: commentsByPin.get(p.id) ?? [],
+      });
+      pinsByDrawing.set(p.drawing_id, list);
+    }
+  }
+
+  // Tasks (Phase 2) for this project + assignee names.
+  type TaskRow = {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string | null;
+    due_date: string | null;
+    assignee_id: string | null;
+    drawing_pin_id: string | null;
+    created_at: string;
+    assignee: ProfileLite | ProfileLite[] | null;
+  };
+  const { data: taskRows } = await adminClient
+    .from("tasks")
+    .select(
+      "id, title, description, status, due_date, assignee_id, drawing_pin_id, created_at, assignee:assignee_id(full_name, login)",
+    )
+    .eq("project_id", id)
+    .order("created_at");
+  const tasks: Task[] = ((taskRows ?? []) as TaskRow[]).map((t) => {
+    const raw = Array.isArray(t.assignee) ? t.assignee[0] : t.assignee;
+    return {
+      id: t.id,
+      projectId: id,
+      title: t.title,
+      description: t.description,
+      status: (t.status ?? "todo") as Task["status"],
+      assigneeId: t.assignee_id,
+      assigneeName: raw ? authorName(raw) : null,
+      drawingPinId: t.drawing_pin_id,
+      dueDate: t.due_date,
+      createdAt: t.created_at,
+    };
+  });
+
+  // Time logs (Phase 4): admins see all entries for the project, welders see
+  // only their own.
+  type TimeRow = {
+    id: string;
+    minutes: number;
+    work_date: string;
+    note: string | null;
+    task_id: string | null;
+    profile_id: string | null;
+    created_at: string;
+    author: ProfileLite | ProfileLite[] | null;
+  };
+  let timeQuery = adminClient
+    .from("time_logs")
+    .select(
+      "id, minutes, work_date, note, task_id, profile_id, created_at, author:profile_id(full_name, login)",
+    )
+    .eq("project_id", id);
+  if (!admin) timeQuery = timeQuery.eq("profile_id", profile.id);
+  const { data: logRows } = await timeQuery.order("work_date", {
+    ascending: false,
+  });
+  const timeLogs: TimeLog[] = ((logRows ?? []) as TimeRow[]).map((l) => {
+    const raw = Array.isArray(l.author) ? l.author[0] : l.author;
+    return {
+      id: l.id,
+      minutes: l.minutes,
+      workDate: l.work_date,
+      note: l.note,
+      author: authorName(raw),
+      authorId: l.profile_id,
+      taskId: l.task_id,
+      createdAt: l.created_at,
+    };
+  });
+  const totalMinutes = timeLogs.reduce((s, l) => s + (l.minutes ?? 0), 0);
+
+  // People who can be assigned tasks: the project's assigned members.
+  const memberOptions = (members ?? []).flatMap((m) => {
+    const raw = m.profiles;
+    const p = (Array.isArray(raw) ? raw[0] : raw) as ProfileLite | null;
+    return p ? [{ id: p.id, name: p.full_name ?? p.login }] : [];
+  });
+
   const drawingFiles = drawingRows.map((d, i) => ({
     id: d.id,
     name: d.original_name ?? `Drawing ${i + 1}`,
@@ -137,6 +309,7 @@ export default async function ProjectPage({
     pageCount: d.page_count ?? null,
     pages: pagesByDrawing.get(d.id) ?? [],
     pdfUrl: pdfFallback.get(d.id) ?? null,
+    pins: pinsByDrawing.get(d.id) ?? [],
   }));
 
   // Gallery (private bucket → signed URLs)
@@ -163,6 +336,7 @@ export default async function ProjectPage({
   }
 
   const weldersSlot = admin ? (
+    <>
     <section className="border-t border-rule pt-6">
       <h2 className="font-display text-lg font-medium text-ink">
         Assigned welders
@@ -222,10 +396,12 @@ export default async function ProjectPage({
         </form>
       )}
     </section>
+    <ShareControl projectId={id} initialToken={project.share_token ?? null} />
+    </>
   ) : null;
 
   return (
-    <div className="p-8">
+    <div className="p-6 sm:p-8">
       <Link href="/projects" className="text-sm text-graph hover:text-ink">
         ← Back to projects
       </Link>
@@ -253,6 +429,13 @@ export default async function ProjectPage({
         <span className="font-mono text-sm text-graph">
           Updated {new Date(project.updated_at).toLocaleDateString("en-CA")}
         </span>
+        {project.completed_at && (
+          <span className="font-mono text-sm text-weld">
+            Signed off{" "}
+            {new Date(project.completed_at).toLocaleDateString("en-CA")}
+            {signedOffBy ? ` · ${signedOffBy}` : ""}
+          </span>
+        )}
       </div>
 
       <ProjectTabs
@@ -263,7 +446,13 @@ export default async function ProjectPage({
         modelUrl={modelUrl}
         drawings={drawingFiles}
         gallery={gallery}
+        tasks={tasks}
+        members={memberOptions}
+        timeLogs={timeLogs}
+        totalMinutes={totalMinutes}
+        canManage={admin}
         canUpload={admin || assignedIds.has(profile.id)}
+        currentUserId={profile.id}
         weldersSlot={weldersSlot}
       />
     </div>

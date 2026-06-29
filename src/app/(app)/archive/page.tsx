@@ -13,7 +13,7 @@ export default async function ArchivePage() {
     .order("updated_at", { ascending: false });
 
   return (
-    <div className="p-8">
+    <div className="p-6 sm:p-8">
       <h1 className="font-display text-3xl font-medium text-ink">Archive</h1>
       <p className="mt-2 text-sm text-graph">Completed and retired projects.</p>
 

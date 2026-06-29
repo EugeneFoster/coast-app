@@ -19,6 +19,19 @@ export async function downloadPdf(storageKey, destPath) {
   return destPath;
 }
 
+// Polling claim source: drawings still waiting to be tiled. Idempotent —
+// processDrawing() flips each row to 'ready' or 'failed', so they drop out.
+export async function fetchProcessingDrawings(limit = 10) {
+  const { data, error } = await supabase
+    .from("drawings")
+    .select("id, version, file_path")
+    .eq("status", "processing")
+    .order("created_at", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
 export async function setProcessing(drawingId) {
   await supabase
     .from("drawings")

@@ -5,7 +5,8 @@
   "type": "module",
   "description": "COAST deep-zoom tiling worker: PDF -> DZI tile pyramids -> R2",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/poll.js",
+    "start:redis": "node src/index.js",
     "process:once": "node src/run-once.js"
   },
   "dependencies": {

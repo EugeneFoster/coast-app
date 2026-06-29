@@ -16,7 +16,7 @@ export default async function NewProjectPage() {
     .order("full_name");
 
   return (
-    <div className="mx-auto max-w-lg p-8">
+    <div className="mx-auto max-w-lg p-6 sm:p-8">
       <Link href="/projects" className="text-sm text-graph hover:text-ink">
         ← Back to projects
       </Link>

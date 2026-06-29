@@ -3,6 +3,15 @@ import IORedis from "ioredis";
 import { env } from "./env.js";
 import { processDrawing } from "./process.js";
 
+// Legacy queue mode. The default deployment uses src/poll.js (no Redis).
+if (!env.redisUrl) {
+  console.error(
+    "REDIS_URL is required for queue mode (src/index.js). " +
+      "For the Redis-free default, run src/poll.js instead.",
+  );
+  process.exit(1);
+}
+
 const connection = new IORedis(env.redisUrl, {
   maxRetriesPerRequest: null,
 });

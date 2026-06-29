@@ -4,8 +4,11 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ModelPreview } from "@/components/model-preview";
 import { DrawingsViewer, type DrawingFile } from "@/components/drawings-viewer";
+import { TasksPanel } from "@/components/tasks-panel";
+import { TimeLogPanel } from "@/components/time-log-panel";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
+import type { Task, TimeLog } from "@/lib/types";
 
 type Media = {
   id: string;
@@ -25,11 +28,12 @@ function initials(name: string) {
   );
 }
 
-type Tab = "overview" | "drawings" | "gallery";
+type Tab = "overview" | "drawings" | "tasks" | "gallery";
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
   drawings: "Drawings",
+  tasks: "Tasks",
   gallery: "Gallery",
 };
 
@@ -41,7 +45,13 @@ export function ProjectTabs({
   modelUrl,
   drawings,
   gallery,
+  tasks,
+  members,
+  timeLogs,
+  totalMinutes,
+  canManage,
   canUpload,
+  currentUserId,
   weldersSlot,
 }: {
   projectId: string;
@@ -51,29 +61,53 @@ export function ProjectTabs({
   modelUrl: string | null;
   drawings: DrawingFile[];
   gallery: Media[];
+  tasks: Task[];
+  members: { id: string; name: string }[];
+  timeLogs: TimeLog[];
+  totalMinutes: number;
+  canManage: boolean;
   canUpload: boolean;
+  currentUserId: string;
   weldersSlot?: ReactNode;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
 
+  const openQuestions = drawings.reduce(
+    (sum, d) => sum + d.pins.filter((p) => p.status === "open").length,
+    0,
+  );
+  const openTasks = tasks.filter((t) => t.status !== "done").length;
+  const badges: Partial<Record<Tab, number>> = {
+    drawings: openQuestions,
+    tasks: openTasks,
+  };
+
   return (
     <div className="mt-8">
-      <div className="flex gap-6 border-b border-rule">
-        {(["overview", "drawings", "gallery"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`relative pb-3 text-sm transition-colors ${
-              tab === t ? "text-ink" : "text-graph hover:text-ink"
-            }`}
-          >
-            {TAB_LABELS[t]}
-            {tab === t && (
-              <span className="absolute bottom-0 left-0 h-0.5 w-full bg-weld" />
-            )}
-          </button>
-        ))}
+      <div className="flex gap-5 overflow-x-auto border-b border-rule sm:gap-6">
+        {(["overview", "drawings", "tasks", "gallery"] as Tab[]).map((t) => {
+          const badge = badges[t] ?? 0;
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={`relative flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-3 text-sm transition-colors ${
+                tab === t ? "text-ink" : "text-graph hover:text-ink"
+              }`}
+            >
+              {TAB_LABELS[t]}
+              {badge > 0 && (
+                <span className="rounded-full bg-weld px-1.5 text-[0.65rem] font-medium text-paper">
+                  {badge}
+                </span>
+              )}
+              {tab === t && (
+                <span className="absolute bottom-0 left-0 h-0.5 w-full bg-weld" />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {tab === "overview" && (
@@ -82,17 +116,49 @@ export function ProjectTabs({
           coverUrl={coverUrl}
           description={description}
           modelUrl={modelUrl}
+          stats={{
+            drawings: drawings.length,
+            openQuestions,
+            openTasks,
+            photos: gallery.length,
+            hours: Math.round((totalMinutes / 60) * 10) / 10,
+          }}
+          onJump={setTab}
           weldersSlot={weldersSlot}
         />
       )}
       {tab === "drawings" && (
         <div className="mt-6">
           {drawings.length > 0 ? (
-            <DrawingsViewer files={drawings} />
+            <DrawingsViewer
+              files={drawings}
+              projectId={projectId}
+              canAnnotate={canUpload}
+              canManage={canManage}
+              currentUserId={currentUserId}
+            />
           ) : (
             <p className="text-sm text-graph">No drawings uploaded.</p>
           )}
         </div>
+      )}
+      {tab === "tasks" && (
+        <>
+          <TasksPanel
+            projectId={projectId}
+            tasks={tasks}
+            members={members}
+            canManage={canManage}
+          />
+          <TimeLogPanel
+            projectId={projectId}
+            tasks={tasks}
+            logs={timeLogs}
+            totalMinutes={totalMinutes}
+            canViewAll={canManage}
+            currentUserId={currentUserId}
+          />
+        </>
       )}
       {tab === "gallery" && (
         <GalleryPanel
@@ -105,17 +171,60 @@ export function ProjectTabs({
   );
 }
 
+function StatTile({
+  label,
+  value,
+  onClick,
+  accent,
+}: {
+  label: string;
+  value: number | string;
+  onClick?: () => void;
+  accent?: boolean;
+}) {
+  const cls = `rounded border bg-paper px-3 py-2.5 text-left transition-colors ${
+    onClick ? "hover:border-ink/30" : ""
+  } ${accent ? "border-weld/50" : "border-rule"}`;
+  const inner = (
+    <>
+      <p
+        className={`font-display text-xl font-medium ${accent ? "text-weld" : "text-ink"}`}
+      >
+        {value}
+      </p>
+      <p className="text-xs text-graph">{label}</p>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className={cls}>
+      {inner}
+    </button>
+  ) : (
+    <div className={cls}>{inner}</div>
+  );
+}
+
 function OverviewPanel({
   name,
   coverUrl,
   description,
   modelUrl,
+  stats,
+  onJump,
   weldersSlot,
 }: {
   name: string;
   coverUrl: string | null;
   description: string | null;
   modelUrl: string | null;
+  stats: {
+    drawings: number;
+    openQuestions: number;
+    openTasks: number;
+    photos: number;
+    hours: number;
+  };
+  onJump: (tab: Tab) => void;
   weldersSlot?: ReactNode;
 }) {
   return (
@@ -137,6 +246,32 @@ function OverviewPanel({
             <p className="mt-3 text-sm text-graph">No description.</p>
           )}
         </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatTile
+          label="Drawings"
+          value={stats.drawings}
+          onClick={() => onJump("drawings")}
+        />
+        <StatTile
+          label="Open questions"
+          value={stats.openQuestions}
+          accent={stats.openQuestions > 0}
+          onClick={() => onJump("drawings")}
+        />
+        <StatTile
+          label="Open tasks"
+          value={stats.openTasks}
+          accent={stats.openTasks > 0}
+          onClick={() => onJump("tasks")}
+        />
+        <StatTile
+          label="Photos & video"
+          value={stats.photos}
+          onClick={() => onJump("gallery")}
+        />
+        <StatTile label="Hours logged" value={stats.hours} />
       </section>
 
       {modelUrl && (

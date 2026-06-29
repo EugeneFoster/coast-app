@@ -3,7 +3,17 @@
 Standalone Node service that turns uploaded PDFs into DZI tile pyramids for the
 deep-zoom drawings viewer.
 
-Pipeline per job `{ drawingId, version, pdfStorageKey }`:
+## Modes
+
+- **Polling (default, no Redis):** `src/poll.js` claims work straight from
+  Postgres — any `drawings` row with `status = 'processing'`. The app never
+  needs Redis; uploading/re-uploading a drawing sets it to `processing` and the
+  worker picks it up. Assumes a single worker instance.
+- **Queue (optional, Redis/BullMQ):** `src/index.js` consumes a Redis queue.
+  Only needed if you want multiple workers / a real broker. Requires `REDIS_URL`
+  on both the app and the worker.
+
+Pipeline per drawing `{ drawingId, version, pdfStorageKey }`:
 
 1. Download the original PDF from Supabase Storage (service role).
 2. Per page: `pdftoppm` high-res raster → `vips dzsave` DZI pyramid → `vips thumbnail` thumb (160px) + preview (1500px).
@@ -27,7 +37,10 @@ R2_BUCKET=coast-tiles              # optional, default
 R2_ENDPOINT=https://<accountid>.r2.cloudflarestorage.com
 R2_ACCESS_KEY_ID
 R2_SECRET_ACCESS_KEY
-REDIS_URL
+# polling mode (default)
+POLL_INTERVAL_MS=5000              # optional, default
+# queue mode only (optional)
+REDIS_URL                          # only if running src/index.js
 QUEUE_NAME=tile                    # optional, must match the app enqueue
 # tuning (optional)
 TILE_TARGET_LONG_EDGE=6000
@@ -43,9 +56,10 @@ TILE_CONCURRENCY=2
 ## Deploy on Railway
 
 Create a **second service** in the same Railway project pointed at this repo with
-**Root Directory = `worker`** (Dockerfile build). Add the env vars above
-(`SUPABASE_*`, `R2_*`, `REDIS_URL`). Add a Redis plugin and reference its
-`REDIS_URL`.
+**Root Directory = `worker`** (Dockerfile build). Add `SUPABASE_*` and `R2_*`
+env vars. **No Redis is required** — the default `src/poll.js` reads pending work
+from Postgres. (Only add a Redis plugin + `REDIS_URL` if you switch to the
+queue mode by overriding the start command to `node src/index.js`.)
 
 ## Local one-off test
 

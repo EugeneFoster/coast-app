@@ -35,7 +35,7 @@ export default async function ProjectsPage({
   const { data: projects } = await query;
 
   return (
-    <div className="p-8">
+    <div className="p-6 sm:p-8">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-3xl font-medium text-ink">Projects</h1>
         {admin && (
@@ -80,7 +80,26 @@ export default async function ProjectsPage({
           ))}
         </div>
       ) : (
-        <p className="mt-12 text-center text-graph">No projects yet</p>
+        <div className="mt-12 flex flex-col items-center justify-center rounded border border-dashed border-rule py-16 text-center">
+          <p className="font-display text-lg text-ink">
+            {statusFilter && statusFilter !== "all"
+              ? "No projects with this status"
+              : "No projects yet"}
+          </p>
+          <p className="mt-2 max-w-sm text-sm text-graph">
+            {admin
+              ? "Create your first project to add drawings, assign welders and track work."
+              : "Projects you're assigned to will appear here."}
+          </p>
+          {admin && (
+            <Link
+              href="/projects/new"
+              className="mt-5 rounded bg-weld px-4 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90"
+            >
+              New project
+            </Link>
+          )}
+        </div>
       )}
     </div>
   );

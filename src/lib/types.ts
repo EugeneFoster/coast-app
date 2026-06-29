@@ -38,6 +38,9 @@ export interface Project {
   drawing_count: number;
   structure_type: string | null;
   created_by: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
+  share_token: string | null;
   created_at: string;
   updated_at: string;
   clients?: Client | null;
@@ -67,4 +70,54 @@ export interface GalleryItem {
 export interface ProjectMember {
   project_id: string;
   profile_id: string;
+}
+
+export type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
+
+export interface Task {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  drawingPinId: string | null;
+  dueDate: string | null;
+  createdAt: string;
+}
+
+export interface TimeLog {
+  id: string;
+  minutes: number;
+  workDate: string;
+  note: string | null;
+  author: string;
+  authorId: string | null;
+  taskId: string | null;
+  createdAt: string;
+}
+
+export type PinStatus = "open" | "resolved";
+
+export interface PinComment {
+  id: string;
+  body: string;
+  author: string;
+  authorId: string | null;
+  createdAt: string;
+}
+
+export interface DrawingPin {
+  id: string;
+  drawingId: string;
+  version: number;
+  pageNo: number;
+  bbox: { x: number; y: number; w: number; h: number };
+  body: string | null;
+  status: PinStatus;
+  author: string;
+  authorId: string | null;
+  createdAt: string;
+  comments: PinComment[];
 }

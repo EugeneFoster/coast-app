@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { addPinComment, createPin, deletePin, setPinStatus } from "@/lib/actions/pins";
+import { createDrawingRevision } from "@/lib/actions/drawings";
+import type { DrawingPin } from "@/lib/types";
 
 export type DrawingPage = { pageNo: number; width: number; height: number };
 export type DrawingFile = {
@@ -13,6 +22,7 @@ export type DrawingFile = {
   pageCount: number | null;
   pages: DrawingPage[];
   pdfUrl: string | null;
+  pins: DrawingPin[];
 };
 
 type Bbox = { x: number; y: number; w: number; h: number };
@@ -21,20 +31,43 @@ function tileBase(file: DrawingFile, pageNo: number) {
   return `/api/tiles/${file.id}/${file.version}/${pageNo}`;
 }
 
-export function DrawingsViewer({ files }: { files: DrawingFile[] }) {
+export function DrawingsViewer({
+  files,
+  projectId,
+  canAnnotate,
+  canManage,
+  currentUserId,
+}: {
+  files: DrawingFile[];
+  projectId: string;
+  canAnnotate: boolean;
+  canManage: boolean;
+  currentUserId: string;
+}) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
   const [activeId, setActiveId] = useState(files[0]?.id ?? null);
   const active = files.find((f) => f.id === activeId) ?? files[0] ?? null;
 
-  // Realtime: flip from "processing" to the viewer when tiling finishes.
+  // Realtime: flip from "processing" to the viewer when tiling finishes, and
+  // refresh when pins/comments change so the team sees updates live.
   useEffect(() => {
     const channel = supabase
-      .channel("drawings-status")
+      .channel("drawings-collab")
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "drawings" },
+        { event: "*", schema: "public", table: "drawings" },
+        () => router.refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "drawing_pins" },
+        () => router.refresh(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pin_comments" },
         () => router.refresh(),
       )
       .subscribe();
@@ -51,31 +84,96 @@ export function DrawingsViewer({ files }: { files: DrawingFile[] }) {
     <div>
       {files.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-2">
-          {files.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setActiveId(f.id)}
-              className={`rounded border px-3 py-1.5 text-sm transition-colors ${
-                f.id === active.id
-                  ? "border-weld text-weld"
-                  : "border-rule text-graph hover:text-ink"
-              }`}
-            >
-              {f.name}
-            </button>
-          ))}
+          {files.map((f) => {
+            const open = f.pins.filter((p) => p.status === "open").length;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setActiveId(f.id)}
+                className={`flex items-center gap-2 rounded border px-3 py-1.5 text-sm transition-colors ${
+                  f.id === active.id
+                    ? "border-weld text-weld"
+                    : "border-rule text-graph hover:text-ink"
+                }`}
+              >
+                {f.name}
+                {open > 0 && (
+                  <span className="rounded-full bg-weld px-1.5 text-[0.65rem] font-medium text-paper">
+                    {open}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      <SheetViewer key={active.id} file={active} />
+      <SheetViewer
+        key={active.id}
+        file={active}
+        projectId={projectId}
+        canAnnotate={canAnnotate}
+        canManage={canManage}
+        currentUserId={currentUserId}
+      />
     </div>
   );
 }
 
-function SheetViewer({ file }: { file: DrawingFile }) {
+function SheetViewer({
+  file,
+  projectId,
+  canAnnotate,
+  canManage,
+  currentUserId,
+}: {
+  file: DrawingFile;
+  projectId: string;
+  canAnnotate: boolean;
+  canManage: boolean;
+  currentUserId: string;
+}) {
+  const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
+  const revisionInputRef = useRef<HTMLInputElement>(null);
+  const [revBusy, setRevBusy] = useState(false);
+  const [revError, setRevError] = useState<string | null>(null);
   const ready = file.status === "ready" && file.pages.length > 0;
   const failed = file.status === "failed";
+
+  async function onRevisionFile(files: FileList | null) {
+    const f = files?.[0];
+    if (!f) return;
+    setRevError(null);
+    if (!/\.pdf$/i.test(f.name)) {
+      setRevError("Revision must be a PDF.");
+      return;
+    }
+    setRevBusy(true);
+    try {
+      const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${projectId}/${file.id}/${crypto.randomUUID()}-${safe}`;
+      const { error: upErr } = await supabase.storage
+        .from("project-drawings")
+        .upload(path, f, { contentType: f.type || "application/pdf" });
+      if (upErr) throw new Error(upErr.message);
+
+      const result = await createDrawingRevision({
+        projectId,
+        drawingId: file.id,
+        filePath: path,
+        originalName: f.name,
+      });
+      if ("error" in result) throw new Error(result.error);
+      if (revisionInputRef.current) revisionInputRef.current.value = "";
+      router.refresh();
+    } catch (caught) {
+      setRevError(caught instanceof Error ? caught.message : "Upload failed.");
+    } finally {
+      setRevBusy(false);
+    }
+  }
 
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -87,9 +185,59 @@ function SheetViewer({ file }: { file: DrawingFile }) {
   const [pageIdx, setPageIdx] = useState(0);
   const [zoomPct, setZoomPct] = useState(100);
   const [askMode, setAskMode] = useState(false);
-  const [crop, setCrop] = useState<{ dataUrl: string; bbox: Bbox } | null>(null);
+  const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ dataUrl: string; bbox: Bbox } | null>(
+    null,
+  );
 
   const page = file.pages[pageIdx];
+
+  const pagePins = useMemo(
+    () =>
+      file.pins.filter(
+        (p) => p.pageNo === page?.pageNo && p.version === file.version,
+      ),
+    [file.pins, file.version, page?.pageNo],
+  );
+
+  // Render pins as zoom/pan-anchored OpenSeadragon overlays for the current page.
+  const renderPins = useCallback(() => {
+    const viewer = viewerRef.current;
+    const OSD = osdRef.current;
+    if (!viewer || !OSD || !viewer.isOpen() || !page) return;
+    viewer.clearOverlays();
+    pagePins.forEach((pin, idx) => {
+      const el = document.createElement("div");
+      el.className =
+        "osd-pin" +
+        (pin.id === selectedPinId ? " osd-pin--active" : "") +
+        (pin.status === "resolved" ? " osd-pin--resolved" : "");
+      const badge = document.createElement("span");
+      badge.className = "osd-pin__badge";
+      badge.textContent = String(idx + 1);
+      badge.addEventListener("pointerdown", (e) => e.stopPropagation());
+      badge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setSelectedPinId(pin.id);
+      });
+      el.appendChild(badge);
+      const rect = viewer.viewport.imageToViewportRectangle(
+        new OSD.Rect(
+          pin.bbox.x * page.width,
+          pin.bbox.y * page.height,
+          pin.bbox.w * page.width,
+          pin.bbox.h * page.height,
+        ),
+      );
+      viewer.addOverlay({ element: el, location: rect });
+    });
+  }, [pagePins, page, selectedPinId]);
+
+  const renderPinsRef = useRef(renderPins);
+  useEffect(() => {
+    renderPinsRef.current = renderPins;
+    if (viewerRef.current?.isOpen?.()) renderPins();
+  }, [renderPins]);
 
   // Initialize / swap OpenSeadragon for the current page.
   useEffect(() => {
@@ -121,6 +269,7 @@ function SheetViewer({ file }: { file: DrawingFile }) {
           const home = vp.getHomeZoom() || 1;
           setZoomPct(Math.round((vp.getZoom() / home) * 100));
         });
+        viewerRef.current.addHandler("open", () => renderPinsRef.current());
       }
 
       viewerRef.current.open(`${tileBase(file, page.pageNo)}/page.dzi`);
@@ -210,23 +359,16 @@ function SheetViewer({ file }: { file: DrawingFile }) {
       `${tileBase(file, page.pageNo)}/preview.webp`,
       bbox,
     );
-    setCrop({ dataUrl, bbox });
+    setDraft({ dataUrl, bbox });
     setRect(null);
     setAskMode(false);
-
-    // Chat slice isn't built yet — emit the payload for wiring later.
-    console.info("ask:crop", {
-      drawingId: file.id,
-      version: file.version,
-      pageNo: page.pageNo,
-      bbox,
-    });
+    viewerRef.current?.setMouseNavEnabled(true);
   }
 
   if (failed) {
     return (
       <div className="rounded border border-weld/40 bg-weld/10 px-4 py-6 text-sm text-weld">
-        Sheet processing failed. Re-upload to try again.
+        Sheet processing failed. Upload a new revision to try again.
         {file.pdfUrl && (
           <a
             href={file.pdfUrl}
@@ -237,165 +379,565 @@ function SheetViewer({ file }: { file: DrawingFile }) {
             Open original PDF
           </a>
         )}
-      </div>
-    );
-  }
-
-  if (!ready) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded border border-dashed border-rule py-16 text-center">
-        <p className="font-display text-lg text-ink">Preparing sheets…</p>
-        <p className="mt-2 max-w-sm text-sm text-graph">
-          The drawing is being tiled for deep zoom. This view updates
-          automatically when it&apos;s ready.
-        </p>
-        {file.pdfUrl && (
-          <a
-            href={file.pdfUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-4 text-xs text-graph underline hover:text-weld"
-          >
-            Open original PDF ↗
-          </a>
+        {canManage && (
+          <div className="mt-3">
+            <input
+              ref={revisionInputRef}
+              type="file"
+              accept="application/pdf"
+              hidden
+              onChange={(e) => onRevisionFile(e.target.files)}
+            />
+            <button
+              type="button"
+              disabled={revBusy}
+              onClick={() => revisionInputRef.current?.click()}
+              className="rounded border border-weld/50 px-3 py-1.5 text-xs text-weld hover:bg-weld/10 disabled:opacity-60"
+            >
+              {revBusy ? "Uploading…" : "Upload new revision"}
+            </button>
+            {revError && <p className="mt-2 text-xs">{revError}</p>}
+          </div>
         )}
       </div>
     );
   }
 
-  return (
-    <div>
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-3">
-        <div className="flex items-center gap-3">
-          <span className="truncate text-sm text-ink">{file.name}</span>
-          <span className="font-mono text-xs text-graph">
-            Sheet {pageIdx + 1} / {file.pages.length}
+  if (!ready) {
+    // While tiling is pending (or if the tiling worker isn't running yet),
+    // show the original PDF inline so the drawing is immediately readable.
+    // The realtime subscription flips this to deep zoom once tiles are ready.
+    return (
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-rule bg-bone px-3 py-2 text-xs text-graph">
+          <span className="flex items-center gap-2">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-rule border-t-weld" />
+            Preparing deep-zoom tiles… showing the original PDF for now.
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => zoomBy(0.8)}
-            className="rounded border border-rule px-2.5 py-1 text-sm text-ink hover:border-weld"
-          >
-            −
-          </button>
-          <span className="w-12 text-center font-mono text-xs text-graph">
-            {zoomPct}%
-          </span>
-          <button
-            type="button"
-            onClick={() => zoomBy(1.25)}
-            className="rounded border border-rule px-2.5 py-1 text-sm text-ink hover:border-weld"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            onClick={fit}
-            className="rounded border border-rule px-3 py-1 text-sm text-ink hover:border-weld"
-          >
-            Fit
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAskMode((v) => !v);
-              setRect(null);
-              viewerRef.current?.setMouseNavEnabled(askMode);
-            }}
-            className={`rounded border px-3 py-1 text-sm transition-colors ${
-              askMode
-                ? "border-weld bg-weld text-paper"
-                : "border-rule text-ink hover:border-weld"
-            }`}
-          >
-            Ask
-          </button>
-        </div>
-      </div>
-
-      {/* Canvas + selection overlay */}
-      <div className="relative mt-4">
-        <div
-          ref={containerRef}
-          className="h-[70vh] w-full rounded border border-rule bg-ink/[0.03] dark:bg-paper/[0.04]"
-        />
-        <div
-          ref={overlayRef}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          className="absolute inset-0"
-          style={{
-            cursor: askMode ? "crosshair" : "default",
-            pointerEvents: askMode ? "auto" : "none",
-          }}
-        >
-          {rect && (
-            <div
-              className="absolute border-2 border-weld bg-weld/10"
-              style={{
-                left: rect.x,
-                top: rect.y,
-                width: rect.w,
-                height: rect.h,
-              }}
-            />
+          {file.pdfUrl && (
+            <a
+              href={file.pdfUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-weld"
+            >
+              Open PDF ↗
+            </a>
           )}
         </div>
+
+        {file.pdfUrl ? (
+          <iframe
+            src={file.pdfUrl}
+            title={file.name}
+            className="mt-3 h-[70vh] w-full rounded border border-rule bg-ink/[0.03] dark:bg-paper/[0.04]"
+          />
+        ) : (
+          <div className="mt-3 flex flex-col items-center justify-center rounded border border-dashed border-rule py-16 text-center">
+            <p className="font-display text-lg text-ink">Preparing sheets…</p>
+            <p className="mt-2 max-w-sm text-sm text-graph">
+              The drawing is being tiled for deep zoom. This view updates
+              automatically when it&apos;s ready.
+            </p>
+          </div>
+        )}
+
+        {canManage && (
+          <div className="mt-3">
+            <input
+              ref={revisionInputRef}
+              type="file"
+              accept="application/pdf"
+              hidden
+              onChange={(e) => onRevisionFile(e.target.files)}
+            />
+            <button
+              type="button"
+              disabled={revBusy}
+              onClick={() => revisionInputRef.current?.click()}
+              className="rounded border border-rule px-3 py-1.5 text-xs text-ink hover:border-weld disabled:opacity-60"
+            >
+              {revBusy ? "Uploading…" : "Re-upload / new revision"}
+            </button>
+            {revError && <p className="mt-2 text-xs text-weld">{revError}</p>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const selectedPin = pagePins.find((p) => p.id === selectedPinId) ?? null;
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      <div>
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-3">
+          <div className="flex items-center gap-3">
+            <span className="truncate text-sm text-ink">{file.name}</span>
+            <span className="font-mono text-xs text-graph">
+              rev{file.version} · Sheet {pageIdx + 1} / {file.pages.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {canManage && (
+              <>
+                <input
+                  ref={revisionInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  hidden
+                  onChange={(e) => onRevisionFile(e.target.files)}
+                />
+                <button
+                  type="button"
+                  disabled={revBusy}
+                  onClick={() => revisionInputRef.current?.click()}
+                  title="Upload a new revision of this drawing"
+                  className="rounded border border-rule px-3 py-1 text-sm text-ink hover:border-weld disabled:opacity-60"
+                >
+                  {revBusy ? "Uploading…" : "New revision"}
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => zoomBy(0.8)}
+              className="rounded border border-rule px-2.5 py-1 text-sm text-ink hover:border-weld"
+            >
+              −
+            </button>
+            <span className="w-12 text-center font-mono text-xs text-graph">
+              {zoomPct}%
+            </span>
+            <button
+              type="button"
+              onClick={() => zoomBy(1.25)}
+              className="rounded border border-rule px-2.5 py-1 text-sm text-ink hover:border-weld"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              onClick={fit}
+              className="rounded border border-rule px-3 py-1 text-sm text-ink hover:border-weld"
+            >
+              Fit
+            </button>
+            {canAnnotate && (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !askMode;
+                  setAskMode(next);
+                  setRect(null);
+                  viewerRef.current?.setMouseNavEnabled(!next);
+                }}
+                title="Select a region to pin a question or note"
+                className={`rounded border px-3 py-1 text-sm transition-colors ${
+                  askMode
+                    ? "border-weld bg-weld text-paper"
+                    : "border-rule text-ink hover:border-weld"
+                }`}
+              >
+                {askMode ? "Cancel" : "Pin a note"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {askMode && (
+          <p className="mt-3 rounded border border-weld/40 bg-weld/10 px-3 py-2 text-xs text-weld">
+            Drag a rectangle over the area you want to ask about.
+          </p>
+        )}
+
+        {revError && (
+          <p className="mt-3 rounded border border-weld/40 bg-weld/10 px-3 py-2 text-xs text-weld">
+            {revError}
+          </p>
+        )}
+
+        {/* Canvas + selection overlay */}
+        <div className="relative mt-4">
+          <div
+            ref={containerRef}
+            className="h-[70vh] w-full rounded border border-rule bg-ink/[0.03] dark:bg-paper/[0.04]"
+          />
+          <div
+            ref={overlayRef}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            className="absolute inset-0"
+            style={{
+              cursor: askMode ? "crosshair" : "default",
+              pointerEvents: askMode ? "auto" : "none",
+            }}
+          >
+            {rect && (
+              <div
+                className="absolute border-2 border-weld bg-weld/10"
+                style={{
+                  left: rect.x,
+                  top: rect.y,
+                  width: rect.w,
+                  height: rect.h,
+                }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Sheet rail */}
+        {file.pages.length > 1 && (
+          <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
+            {file.pages.map((p, i) => {
+              const open = file.pins.filter(
+                (pin) =>
+                  pin.pageNo === p.pageNo &&
+                  pin.version === file.version &&
+                  pin.status === "open",
+              ).length;
+              return (
+                <button
+                  key={p.pageNo}
+                  type="button"
+                  onClick={() => {
+                    setPageIdx(i);
+                    setSelectedPinId(null);
+                  }}
+                  className={`relative shrink-0 overflow-hidden rounded border ${
+                    i === pageIdx ? "border-weld" : "border-rule"
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`${tileBase(file, p.pageNo)}/thumb.webp`}
+                    alt={`Sheet ${i + 1}`}
+                    className="h-24 w-auto"
+                  />
+                  {open > 0 && (
+                    <span className="absolute right-1 top-1 rounded-full bg-weld px-1.5 text-[0.6rem] font-medium text-paper">
+                      {open}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Sheet rail */}
-      {file.pages.length > 1 && (
-        <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
-          {file.pages.map((p, i) => (
+      {/* Discussion rail */}
+      <PinPanel
+        projectId={projectId}
+        file={file}
+        page={page}
+        pins={pagePins}
+        selectedPin={selectedPin}
+        onSelect={setSelectedPinId}
+        canAnnotate={canAnnotate}
+        currentUserId={currentUserId}
+        draft={draft}
+        onClearDraft={() => setDraft(null)}
+        onChanged={() => router.refresh()}
+      />
+    </div>
+  );
+}
+
+function PinPanel({
+  projectId,
+  file,
+  page,
+  pins,
+  selectedPin,
+  onSelect,
+  canAnnotate,
+  currentUserId,
+  draft,
+  onClearDraft,
+  onChanged,
+}: {
+  projectId: string;
+  file: DrawingFile;
+  page: DrawingPage | undefined;
+  pins: DrawingPin[];
+  selectedPin: DrawingPin | null;
+  onSelect: (id: string | null) => void;
+  canAnnotate: boolean;
+  currentUserId: string;
+  draft: { dataUrl: string; bbox: Bbox } | null;
+  onClearDraft: () => void;
+  onChanged: () => void;
+}) {
+  const [body, setBody] = useState("");
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submitPin() {
+    if (!draft || !page) return;
+    const text = body.trim();
+    if (!text) {
+      setError("Please describe your question or note.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const result = await createPin({
+      projectId,
+      drawingId: file.id,
+      version: file.version,
+      pageNo: page.pageNo,
+      bbox: draft.bbox,
+      body: text,
+    });
+    setBusy(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    setBody("");
+    onClearDraft();
+    onSelect(result.id);
+    onChanged();
+  }
+
+  async function submitComment() {
+    if (!selectedPin) return;
+    const text = comment.trim();
+    if (!text) return;
+    setBusy(true);
+    setError(null);
+    const result = await addPinComment(selectedPin.id, text);
+    setBusy(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setComment("");
+    onChanged();
+  }
+
+  async function toggleStatus() {
+    if (!selectedPin) return;
+    setBusy(true);
+    setError(null);
+    const result = await setPinStatus(
+      selectedPin.id,
+      selectedPin.status === "open" ? "resolved" : "open",
+    );
+    setBusy(false);
+    if (result.error) setError(result.error);
+    else onChanged();
+  }
+
+  async function removePin() {
+    if (!selectedPin) return;
+    setBusy(true);
+    setError(null);
+    const result = await deletePin(selectedPin.id);
+    setBusy(false);
+    if (result.error) setError(result.error);
+    else {
+      onSelect(null);
+      onChanged();
+    }
+  }
+
+  return (
+    <aside className="flex flex-col rounded border border-rule bg-paper">
+      <div className="border-b border-rule px-4 py-3">
+        <h3 className="font-display text-sm font-medium text-ink">
+          Sheet discussion
+        </h3>
+        <p className="mt-0.5 text-xs text-graph">
+          {pins.length === 0
+            ? "No notes on this sheet yet."
+            : `${pins.filter((p) => p.status === "open").length} open · ${pins.length} total`}
+        </p>
+      </div>
+
+      {error && (
+        <p className="mx-4 mt-3 rounded border border-weld/40 bg-weld/10 px-3 py-2 text-xs text-weld">
+          {error}
+        </p>
+      )}
+
+      {/* New pin composer (after a region is selected) */}
+      {draft && (
+        <div className="border-b border-rule p-4">
+          <p className="text-xs font-medium text-ink">New note</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={draft.dataUrl}
+            alt="Selected region"
+            className="mt-2 max-h-28 w-auto rounded border border-rule"
+          />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={3}
+            autoFocus
+            placeholder="What needs clarifying here?"
+            className="mt-2 w-full rounded border border-rule bg-bone px-2 py-1.5 text-sm text-ink focus:border-weld focus:outline-none"
+          />
+          <div className="mt-2 flex gap-2">
             <button
-              key={p.pageNo}
               type="button"
-              onClick={() => setPageIdx(i)}
-              className={`shrink-0 overflow-hidden rounded border ${
-                i === pageIdx ? "border-weld" : "border-rule"
-              }`}
+              onClick={submitPin}
+              disabled={busy}
+              className="rounded bg-weld px-3 py-1.5 text-xs font-medium text-paper disabled:opacity-60"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`${tileBase(file, p.pageNo)}/thumb.webp`}
-                alt={`Sheet ${i + 1}`}
-                className="h-24 w-auto"
-              />
+              {busy ? "Saving…" : "Add note"}
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={() => {
+                onClearDraft();
+                setBody("");
+                setError(null);
+              }}
+              className="rounded border border-rule px-3 py-1.5 text-xs text-graph hover:text-ink"
+            >
+              Discard
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Ask crop result (chat composer stub) */}
-      {crop && (
-        <div className="mt-4 flex items-center gap-4 rounded border border-rule bg-paper p-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={crop.dataUrl}
-            alt="Selected region"
-            className="h-24 w-auto rounded border border-rule"
-          />
-          <div className="text-sm text-graph">
-            <p className="text-ink">Region captured</p>
-            <p className="font-mono text-xs">
-              p{page?.pageNo} · {crop.bbox.w.toFixed(2)}×{crop.bbox.h.toFixed(2)}
-            </p>
-            <p className="mt-1 text-xs">Chat composer wiring pending.</p>
+      {/* Selected pin thread */}
+      {selectedPin ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="border-b border-rule p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <span
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wide ${
+                    selectedPin.status === "open"
+                      ? "border-weld text-weld"
+                      : "border-graph text-graph"
+                  }`}
+                >
+                  {selectedPin.status}
+                </span>
+                <p className="mt-2 whitespace-pre-wrap text-sm text-ink">
+                  {selectedPin.body}
+                </p>
+                <p className="mt-1 text-xs text-graph">
+                  {selectedPin.author} ·{" "}
+                  {new Date(selectedPin.createdAt).toLocaleDateString("en-CA")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onSelect(null)}
+                className="text-xs text-graph hover:text-ink"
+                aria-label="Close thread"
+              >
+                ✕
+              </button>
+            </div>
+
+            {canAnnotate && (
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={toggleStatus}
+                  disabled={busy}
+                  className="rounded border border-rule px-3 py-1 text-xs text-ink hover:border-weld disabled:opacity-60"
+                >
+                  {selectedPin.status === "open" ? "Mark resolved" : "Reopen"}
+                </button>
+                {selectedPin.authorId === currentUserId && (
+                  <button
+                    type="button"
+                    onClick={removePin}
+                    disabled={busy}
+                    className="rounded border border-rule px-3 py-1 text-xs text-weld hover:border-weld disabled:opacity-60"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => setCrop(null)}
-            className="ml-auto text-xs text-graph hover:text-weld"
-          >
-            Dismiss
-          </button>
+
+          <div className="flex-1 space-y-3 overflow-y-auto p-4">
+            {selectedPin.comments.length === 0 && (
+              <p className="text-xs text-graph">No replies yet.</p>
+            )}
+            {selectedPin.comments.map((c) => (
+              <div key={c.id} className="rounded border border-rule/60 p-2">
+                <p className="whitespace-pre-wrap text-sm text-ink">{c.body}</p>
+                <p className="mt-1 text-[0.65rem] text-graph">
+                  {c.author} ·{" "}
+                  {new Date(c.createdAt).toLocaleDateString("en-CA")}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {canAnnotate && (
+            <div className="border-t border-rule p-3">
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                rows={2}
+                placeholder="Reply…"
+                className="w-full rounded border border-rule bg-bone px-2 py-1.5 text-sm text-ink focus:border-weld focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={submitComment}
+                disabled={busy}
+                className="mt-2 rounded border border-rule px-3 py-1.5 text-xs text-ink hover:border-weld disabled:opacity-60"
+              >
+                Reply
+              </button>
+            </div>
+          )}
         </div>
+      ) : (
+        <ul className="flex-1 divide-y divide-rule/60 overflow-y-auto">
+          {pins.map((pin, idx) => (
+            <li key={pin.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(pin.id)}
+                className="flex w-full items-start gap-2 px-4 py-3 text-left hover:bg-bone"
+              >
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-mono text-[0.6rem] text-paper ${
+                    pin.status === "open" ? "bg-weld" : "bg-graph"
+                  }`}
+                >
+                  {idx + 1}
+                </span>
+                <span className="min-w-0">
+                  <span className="line-clamp-2 block text-sm text-ink">
+                    {pin.body}
+                  </span>
+                  <span className="text-xs text-graph">
+                    {pin.author}
+                    {pin.comments.length > 0 && ` · ${pin.comments.length} ↩`}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+          {pins.length === 0 && !draft && (
+            <li className="px-4 py-6 text-center text-xs text-graph">
+              {canAnnotate
+                ? 'Use "Pin a note" to ask about a region of this sheet.'
+                : "Nothing to discuss on this sheet yet."}
+            </li>
+          )}
+        </ul>
       )}
-    </div>
+    </aside>
   );
 }
 

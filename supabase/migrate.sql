@@ -197,6 +197,289 @@ begin
   end if;
 end $$;
 
+-- ============================================================================
+-- Phase 1: Drawing pins (anchored annotations / questions) + threaded comments.
+-- Closes the "Ask" loop in the drawing viewer: a region on a sheet becomes a
+-- persistent, resolvable discussion between the shop floor and the drafter.
+-- ============================================================================
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'pin_status') then
+    create type pin_status as enum ('open', 'resolved');
+  end if;
+end $$;
+
+create table if not exists public.drawing_pins (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects(id) on delete cascade,
+  drawing_id  uuid not null references public.drawings(id) on delete cascade,
+  version     int  not null default 1,
+  page_no     int  not null,
+  -- Normalized bounding box (0..1) relative to the page image.
+  bx          double precision not null,
+  "by"        double precision not null,
+  bw          double precision not null,
+  bh          double precision not null,
+  body        text,
+  status      pin_status not null default 'open',
+  created_by  uuid references public.profiles(id),
+  resolved_by uuid references public.profiles(id),
+  resolved_at timestamptz,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists drawing_pins_drawing_idx on public.drawing_pins(drawing_id);
+create index if not exists drawing_pins_project_idx on public.drawing_pins(project_id);
+
+create table if not exists public.pin_comments (
+  id         uuid primary key default gen_random_uuid(),
+  pin_id     uuid not null references public.drawing_pins(id) on delete cascade,
+  body       text not null,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists pin_comments_pin_idx on public.pin_comments(pin_id);
+
+alter table public.drawing_pins enable row level security;
+alter table public.pin_comments enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'drawing_pins' and policyname = 'pins_read'
+  ) then
+    create policy pins_read on public.drawing_pins for select using (
+      public.is_admin()
+      or exists (
+        select 1 from public.project_members m
+        where m.project_id = drawing_pins.project_id and m.profile_id = auth.uid()
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'drawing_pins' and policyname = 'pins_insert'
+  ) then
+    create policy pins_insert on public.drawing_pins for insert with check (
+      created_by = auth.uid()
+      and (
+        public.is_admin()
+        or exists (
+          select 1 from public.project_members m
+          where m.project_id = drawing_pins.project_id and m.profile_id = auth.uid()
+        )
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'drawing_pins' and policyname = 'pins_update'
+  ) then
+    create policy pins_update on public.drawing_pins for update using (
+      public.is_admin()
+      or exists (
+        select 1 from public.project_members m
+        where m.project_id = drawing_pins.project_id and m.profile_id = auth.uid()
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'drawing_pins' and policyname = 'pins_delete'
+  ) then
+    create policy pins_delete on public.drawing_pins for delete using (
+      public.is_admin() or created_by = auth.uid()
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'pin_comments' and policyname = 'pin_comments_read'
+  ) then
+    create policy pin_comments_read on public.pin_comments for select using (
+      exists (
+        select 1 from public.drawing_pins p
+        where p.id = pin_comments.pin_id and (
+          public.is_admin()
+          or exists (
+            select 1 from public.project_members m
+            where m.project_id = p.project_id and m.profile_id = auth.uid()
+          )
+        )
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'pin_comments' and policyname = 'pin_comments_insert'
+  ) then
+    create policy pin_comments_insert on public.pin_comments for insert with check (
+      created_by = auth.uid()
+      and exists (
+        select 1 from public.drawing_pins p
+        where p.id = pin_comments.pin_id and (
+          public.is_admin()
+          or exists (
+            select 1 from public.project_members m
+            where m.project_id = p.project_id and m.profile_id = auth.uid()
+          )
+        )
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'pin_comments' and policyname = 'pin_comments_delete'
+  ) then
+    create policy pin_comments_delete on public.pin_comments for delete using (
+      public.is_admin() or created_by = auth.uid()
+    );
+  end if;
+end $$;
+
+-- ============================================================================
+-- Phase 2: Tasks / work items. Gives the shop floor a way to report progress
+-- inside the system; owners/drafters assign, welders update status.
+-- ============================================================================
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'task_status') then
+    create type task_status as enum ('todo', 'in_progress', 'blocked', 'done');
+  end if;
+end $$;
+
+create table if not exists public.tasks (
+  id             uuid primary key default gen_random_uuid(),
+  project_id     uuid not null references public.projects(id) on delete cascade,
+  title          text not null,
+  description    text,
+  status         task_status not null default 'todo',
+  assignee_id    uuid references public.profiles(id) on delete set null,
+  drawing_pin_id uuid references public.drawing_pins(id) on delete set null,
+  due_date       date,
+  created_by     uuid references public.profiles(id),
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+create index if not exists tasks_project_idx  on public.tasks(project_id);
+create index if not exists tasks_assignee_idx on public.tasks(assignee_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_trigger where tgname = 'trg_tasks_touch'
+  ) then
+    create trigger trg_tasks_touch before update on public.tasks
+      for each row execute function public.touch_updated_at();
+  end if;
+end $$;
+
+alter table public.tasks enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'tasks' and policyname = 'tasks_read'
+  ) then
+    create policy tasks_read on public.tasks for select using (
+      public.is_admin()
+      or exists (
+        select 1 from public.project_members m
+        where m.project_id = tasks.project_id and m.profile_id = auth.uid()
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'tasks' and policyname = 'tasks_admin'
+  ) then
+    create policy tasks_admin on public.tasks
+      for all using (public.is_admin()) with check (public.is_admin());
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'tasks' and policyname = 'tasks_member_update'
+  ) then
+    create policy tasks_member_update on public.tasks for update using (
+      exists (
+        select 1 from public.project_members m
+        where m.project_id = tasks.project_id and m.profile_id = auth.uid()
+      )
+    );
+  end if;
+end $$;
+
+-- ============================================================================
+-- Phase 4: time logs, project sign-off and a read-only client share token.
+-- ============================================================================
+alter table public.projects add column if not exists completed_by uuid references public.profiles(id);
+alter table public.projects add column if not exists completed_at timestamptz;
+alter table public.projects add column if not exists share_token text unique;
+
+create table if not exists public.time_logs (
+  id         uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  task_id    uuid references public.tasks(id) on delete set null,
+  profile_id uuid references public.profiles(id) on delete set null,
+  minutes    int  not null check (minutes > 0),
+  work_date  date not null default current_date,
+  note       text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists time_logs_project_idx on public.time_logs(project_id);
+create index if not exists time_logs_profile_idx on public.time_logs(profile_id);
+
+alter table public.time_logs enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'time_logs' and policyname = 'time_logs_read'
+  ) then
+    create policy time_logs_read on public.time_logs for select using (
+      public.is_admin() or profile_id = auth.uid()
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'time_logs' and policyname = 'time_logs_insert'
+  ) then
+    create policy time_logs_insert on public.time_logs for insert with check (
+      profile_id = auth.uid()
+      and (
+        public.is_admin()
+        or exists (
+          select 1 from public.project_members m
+          where m.project_id = time_logs.project_id and m.profile_id = auth.uid()
+        )
+      )
+    );
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'time_logs' and policyname = 'time_logs_delete'
+  ) then
+    create policy time_logs_delete on public.time_logs for delete using (
+      public.is_admin() or profile_id = auth.uid()
+    );
+  end if;
+end $$;
+
 -- Demo data: only when the project table is still empty.
 do $$
 declare
