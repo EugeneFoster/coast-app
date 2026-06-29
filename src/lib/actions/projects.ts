@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { assertProjectAccess } from "@/lib/access";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTiling } from "@/lib/queue";
@@ -12,35 +13,6 @@ const GALLERY_BUCKET = "project-gallery";
 
 function sanitizeName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
-
-// Authorize the current user for a project (admin or assigned member).
-async function assertProjectAccess(projectId: string): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role === "owner" || profile?.role === "draftsperson") {
-    return user.id;
-  }
-
-  const { data: member } = await supabase
-    .from("project_members")
-    .select("project_id")
-    .eq("project_id", projectId)
-    .eq("profile_id", user.id)
-    .maybeSingle();
-
-  if (!member) throw new Error("You do not have access to this project.");
-  return user.id;
 }
 
 export type NewProjectInput = {
@@ -242,7 +214,7 @@ export async function addGalleryItem(
 ): Promise<{ error?: string }> {
   let userId: string;
   try {
-    userId = await assertProjectAccess(projectId);
+    ({ userId } = await assertProjectAccess(projectId));
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Access denied." };
   }

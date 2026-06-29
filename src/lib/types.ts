@@ -68,3 +68,27 @@ export interface ProjectMember {
   project_id: string;
   profile_id: string;
 }
+
+export type PinStatus = "open" | "resolved";
+
+export interface PinComment {
+  id: string;
+  body: string;
+  author: string;
+  authorId: string | null;
+  createdAt: string;
+}
+
+export interface DrawingPin {
+  id: string;
+  drawingId: string;
+  version: number;
+  pageNo: number;
+  bbox: { x: number; y: number; w: number; h: number };
+  body: string | null;
+  status: PinStatus;
+  author: string;
+  authorId: string | null;
+  createdAt: string;
+  comments: PinComment[];
+}

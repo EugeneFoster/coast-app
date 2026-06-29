@@ -42,6 +42,7 @@ export function ProjectTabs({
   drawings,
   gallery,
   canUpload,
+  currentUserId,
   weldersSlot,
 }: {
   projectId: string;
@@ -52,6 +53,7 @@ export function ProjectTabs({
   drawings: DrawingFile[];
   gallery: Media[];
   canUpload: boolean;
+  currentUserId: string;
   weldersSlot?: ReactNode;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -88,7 +90,12 @@ export function ProjectTabs({
       {tab === "drawings" && (
         <div className="mt-6">
           {drawings.length > 0 ? (
-            <DrawingsViewer files={drawings} />
+            <DrawingsViewer
+              files={drawings}
+              projectId={projectId}
+              canAnnotate={canUpload}
+              currentUserId={currentUserId}
+            />
           ) : (
             <p className="text-sm text-graph">No drawings uploaded.</p>
           )}

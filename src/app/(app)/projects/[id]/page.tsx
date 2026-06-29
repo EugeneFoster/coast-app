@@ -9,6 +9,7 @@ import { ProjectNameEditor } from "@/components/project-name-editor";
 import { ProjectKebab } from "@/components/project-kebab";
 import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
+import type { DrawingPin, PinComment } from "@/lib/types";
 
 type ProfileLite = {
   id: string;
@@ -129,6 +130,87 @@ export default async function ProjectPage({
     });
   }
 
+  // Drawing pins (anchored annotations / questions) + their comment threads.
+  type PinRow = {
+    id: string;
+    drawing_id: string;
+    version: number | null;
+    page_no: number;
+    bx: number;
+    by: number;
+    bw: number;
+    bh: number;
+    body: string | null;
+    status: string | null;
+    created_by: string | null;
+    created_at: string;
+    author: ProfileLite | ProfileLite[] | null;
+  };
+  type PinCommentRow = {
+    id: string;
+    pin_id: string;
+    body: string;
+    created_by: string | null;
+    created_at: string;
+    author: ProfileLite | ProfileLite[] | null;
+  };
+
+  const pinsByDrawing = new Map<string, DrawingPin[]>();
+  if (drawingRows.length > 0) {
+    const { data: pinRows } = await adminClient
+      .from("drawing_pins")
+      .select(
+        "id, drawing_id, version, page_no, bx, by, bw, bh, body, status, created_by, created_at, author:created_by(full_name, login)",
+      )
+      .eq("project_id", id)
+      .order("created_at");
+
+    const rows = (pinRows ?? []) as PinRow[];
+    const pinIds = rows.map((p) => p.id);
+
+    const commentsByPin = new Map<string, PinComment[]>();
+    if (pinIds.length > 0) {
+      const { data: commentRows } = await adminClient
+        .from("pin_comments")
+        .select(
+          "id, pin_id, body, created_by, created_at, author:created_by(full_name, login)",
+        )
+        .in("pin_id", pinIds)
+        .order("created_at");
+      for (const c of (commentRows ?? []) as PinCommentRow[]) {
+        const raw = Array.isArray(c.author) ? c.author[0] : c.author;
+        const list = commentsByPin.get(c.pin_id) ?? [];
+        list.push({
+          id: c.id,
+          body: c.body,
+          author: authorName(raw),
+          authorId: c.created_by,
+          createdAt: c.created_at,
+        });
+        commentsByPin.set(c.pin_id, list);
+      }
+    }
+
+    for (const p of rows) {
+      const raw = Array.isArray(p.author) ? p.author[0] : p.author;
+      const list = pinsByDrawing.get(p.drawing_id) ?? [];
+      list.push({
+        id: p.id,
+        drawingId: p.drawing_id,
+        version: p.version ?? 1,
+        pageNo: p.page_no,
+        bbox: { x: p.bx, y: p.by, w: p.bw, h: p.bh },
+        body: p.body,
+        status: (p.status ?? "open") as DrawingPin["status"],
+        author: authorName(raw),
+        authorId: p.created_by,
+        createdAt: p.created_at,
+        comments: commentsByPin.get(p.id) ?? [],
+      });
+      pinsByDrawing.set(p.drawing_id, list);
+    }
+  }
+
   const drawingFiles = drawingRows.map((d, i) => ({
     id: d.id,
     name: d.original_name ?? `Drawing ${i + 1}`,
@@ -137,6 +219,7 @@ export default async function ProjectPage({
     pageCount: d.page_count ?? null,
     pages: pagesByDrawing.get(d.id) ?? [],
     pdfUrl: pdfFallback.get(d.id) ?? null,
+    pins: pinsByDrawing.get(d.id) ?? [],
   }));
 
   // Gallery (private bucket → signed URLs)
@@ -264,6 +347,7 @@ export default async function ProjectPage({
         drawings={drawingFiles}
         gallery={gallery}
         canUpload={admin || assignedIds.has(profile.id)}
+        currentUserId={profile.id}
         weldersSlot={weldersSlot}
       />
     </div>

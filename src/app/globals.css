@@ -111,6 +111,48 @@ body {
   background-color: #13212f;
 }
 
+/* Drawing pins (OpenSeadragon overlays) */
+.osd-pin {
+  pointer-events: none;
+  border: 2px solid var(--weld);
+  background: rgba(203, 85, 48, 0.12);
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+.osd-pin--resolved {
+  border-color: var(--graph);
+  background: rgba(108, 110, 115, 0.12);
+}
+
+.osd-pin--active {
+  box-shadow: 0 0 0 2px var(--weld);
+}
+
+.osd-pin__badge {
+  pointer-events: auto;
+  position: absolute;
+  top: -11px;
+  left: -11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  width: 22px;
+  border-radius: 9999px;
+  background: var(--weld);
+  color: #fff;
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.osd-pin--resolved .osd-pin__badge {
+  background: var(--graph);
+}
+
 .font-display {
   font-family: var(--font-oswald), sans-serif;
 }
