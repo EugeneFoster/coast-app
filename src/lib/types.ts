@@ -68,3 +68,51 @@ export interface ProjectMember {
   project_id: string;
   profile_id: string;
 }
+
+export type MarkupKind = "pin" | "area" | "ink";
+export type MarkupStatus = "open" | "answered" | "resolved";
+
+export interface DrawingMarkup {
+  id: string;
+  drawing_id: string;
+  version: number;
+  page_no: number;
+  kind: MarkupKind;
+  x: number;
+  y: number;
+  w: number | null;
+  h: number | null;
+  path: unknown | null;
+  status: MarkupStatus;
+  title: string | null;
+  created_by: string | null;
+  carried_from_id: string | null;
+  needs_review: boolean;
+  created_at: string;
+  updated_at: string;
+  profiles?: { full_name: string | null; login: string } | null;
+}
+
+export interface MarkupComment {
+  id: string;
+  markup_id: string;
+  body: string;
+  author: string | null;
+  created_at: string;
+  profiles?: { full_name: string | null; login: string } | null;
+}
+
+export interface MarkupPhoto {
+  id: string;
+  markup_id: string;
+  comment_id: string | null;
+  file_path: string;
+  uploaded_by: string | null;
+  created_at: string;
+  url?: string | null;
+}
+
+export interface MarkupWithThread extends DrawingMarkup {
+  comments: MarkupComment[];
+  photos: MarkupPhoto[];
+}

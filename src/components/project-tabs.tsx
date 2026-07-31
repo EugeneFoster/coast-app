@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ModelPreview } from "@/components/model-preview";
 import { DrawingsViewer, type DrawingFile } from "@/components/drawings-viewer";
+import type { MarkupWithThread } from "@/lib/types";
 import { CoverImage } from "@/components/cover-image";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
@@ -45,6 +46,8 @@ export function ProjectTabs({
   gallery,
   canUpload,
   weldersSlot,
+  isAdminUser,
+  markupsByDrawing,
 }: {
   projectId: string;
   name: string;
@@ -56,6 +59,8 @@ export function ProjectTabs({
   gallery: Media[];
   canUpload: boolean;
   weldersSlot?: ReactNode;
+  isAdminUser: boolean;
+  markupsByDrawing: Record<string, MarkupWithThread[]>;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
 
@@ -92,7 +97,12 @@ export function ProjectTabs({
       {tab === "drawings" && (
         <div className="mt-6">
           {drawings.length > 0 ? (
-            <DrawingsViewer files={drawings} />
+            <DrawingsViewer
+              files={drawings}
+              projectId={projectId}
+              isAdminUser={isAdminUser}
+              initialMarkupsByDrawing={markupsByDrawing}
+            />
           ) : (
             <p className="text-sm text-graph">No drawings uploaded.</p>
           )}

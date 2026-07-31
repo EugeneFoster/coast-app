@@ -10,6 +10,8 @@ import { ProjectKebab } from "@/components/project-kebab";
 import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
 import { resolveCoverUrl } from "@/lib/covers";
+import { fetchDrawingMarkups } from "@/lib/actions/markups";
+import type { MarkupWithThread } from "@/lib/types";
 
 type ProfileLite = {
   id: string;
@@ -136,6 +138,12 @@ export default async function ProjectPage({
     pages: pagesByDrawing.get(d.id) ?? [],
     pdfUrl: pdfFallback.get(d.id) ?? null,
   }));
+
+  const markupsByDrawing: Record<string, MarkupWithThread[]> = {};
+  for (const d of drawingRows) {
+    const version = d.version ?? 1;
+    markupsByDrawing[d.id] = await fetchDrawingMarkups(d.id, version);
+  }
 
   // Gallery (private bucket → signed URLs)
   let gallery: {
@@ -264,6 +272,8 @@ export default async function ProjectPage({
         gallery={gallery}
         canUpload={admin || assignedIds.has(profile.id)}
         weldersSlot={weldersSlot}
+        isAdminUser={admin}
+        markupsByDrawing={markupsByDrawing}
       />
     </div>
   );
