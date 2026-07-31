@@ -35,6 +35,8 @@ import {
 import { enqueueMarkupOp } from "@/lib/offline/markup-queue";
 import type { MarkupStatus } from "@/lib/types";
 
+import type { TilingHint } from "@/lib/drawing-status";
+
 export type DrawingPage = { pageNo: number; width: number; height: number };
 export type DrawingFile = {
   id: string;
@@ -44,6 +46,8 @@ export type DrawingFile = {
   pageCount: number | null;
   pages: DrawingPage[];
   pdfOnly?: boolean;
+  tilingHint?: TilingHint;
+  tilingError?: string | null;
 };
 
 type Tool = "nav" | "pin" | "area" | "pen" | "highlighter" | "eraser" | "photo";
@@ -528,7 +532,12 @@ function SheetViewer({
 
   if (failed || !ready) {
     return (
-      <SheetProcessingPlaceholder failed={failed} processing={processing} />
+      <SheetProcessingPlaceholder
+        failed={failed}
+        processing={processing}
+        tilingHint={file.tilingHint}
+        tilingError={file.tilingError}
+      />
     );
   }
 

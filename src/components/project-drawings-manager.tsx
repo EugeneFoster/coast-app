@@ -10,6 +10,7 @@ import {
   uploadDrawingRevision,
 } from "@/lib/actions/projects";
 import type { DrawingFile } from "@/components/drawings-viewer";
+import { tilingHintLabel } from "@/lib/drawing-status";
 
 const MAX_PDF = 25 * 1024 * 1024;
 const PDF_RE = /\.pdf$/i;
@@ -153,7 +154,8 @@ export function ProjectDrawingsManager({
   const statusLabel = (d: DrawingFile) => {
     if (d.status === "ready") return "Ready";
     if (d.status === "failed") return "Failed";
-    if (d.pdfOnly) return "Awaiting worker";
+    if (d.tilingHint) return tilingHintLabel(d.tilingHint);
+    if (d.pdfOnly) return "Worker not configured";
     return "Processing";
   };
 
