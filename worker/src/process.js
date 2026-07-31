@@ -10,6 +10,7 @@ import {
   replacePages,
   setFailed,
   setProcessing,
+  setProjectCoverIfEmpty,
   setReady,
 } from "./supabase.js";
 
@@ -149,6 +150,10 @@ export async function processDrawing({ drawingId, version, pdfStorageKey }) {
         thumb_key: thumbKey,
         preview_key: previewKey,
       });
+
+      if (p === 1) {
+        await setProjectCoverIfEmpty(drawingId, previewKey);
+      }
     }
 
     await replacePages(drawingId, rows);

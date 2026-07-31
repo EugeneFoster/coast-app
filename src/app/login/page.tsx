@@ -13,10 +13,10 @@ export default async function LoginPage({
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <p className="font-display text-3xl font-semibold uppercase tracking-[0.35em] text-ink">
+          <p className="font-display text-3xl font-medium uppercase tracking-[0.35em] text-ink">
             COAST
           </p>
-          <p className="mt-1 text-xs uppercase tracking-[0.3em] text-graph">
+          <p className="mt-1 text-xs tracking-[0.2em] text-graph">
             metal works
           </p>
         </div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser, isAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { ProjectCard } from "@/components/project-card";
+import { HairlineMotif } from "@/components/hairline-motif";
 import type { ProjectStatus } from "@/lib/types";
 
 const filters: { label: string; value: ProjectStatus | "all" }[] = [
@@ -48,7 +49,7 @@ export default async function ProjectsPage({
         )}
       </div>
 
-      <div className="mt-6 flex gap-6 border-b border-rule">
+      <div className="mt-6 flex gap-6">
         {filters.map((f) => {
           const active =
             (f.value === "all" && !statusFilter) || statusFilter === f.value;
@@ -59,9 +60,7 @@ export default async function ProjectsPage({
                 f.value === "all" ? "/projects" : `/projects?status=${f.value}`
               }
               className={`relative pb-3 text-sm transition-colors ${
-                active
-                  ? "text-ink"
-                  : "text-graph hover:text-ink"
+                active ? "text-ink" : "text-graph hover:text-ink"
               }`}
             >
               {f.label}
@@ -73,10 +72,12 @@ export default async function ProjectsPage({
         })}
       </div>
 
+      <HairlineMotif className="mt-4" />
+
       {projects && projects.length > 0 ? (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard key={project.id} project={project} canEdit={admin} />
           ))}
         </div>
       ) : (

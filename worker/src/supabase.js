@@ -53,3 +53,29 @@ export async function replacePages(drawingId, rows) {
   const ins = await supabase.from("drawing_pages").insert(rows);
   if (ins.error) throw new Error(ins.error.message);
 }
+
+/** Set project cover from the first drawing page preview when none exists. */
+export async function setProjectCoverIfEmpty(drawingId, previewKey) {
+  const { data: drawing, error: drawingError } = await supabase
+    .from("drawings")
+    .select("project_id")
+    .eq("id", drawingId)
+    .maybeSingle();
+  if (drawingError) throw new Error(drawingError.message);
+  if (!drawing?.project_id) return;
+
+  const { data: project, error: projectError } = await supabase
+    .from("projects")
+    .select("cover_url")
+    .eq("id", drawing.project_id)
+    .maybeSingle();
+  if (projectError) throw new Error(projectError.message);
+  if (project?.cover_url) return;
+
+  const { error: updateError } = await supabase
+    .from("projects")
+    .update({ cover_url: previewKey })
+    .eq("id", drawing.project_id)
+    .is("cover_url", null);
+  if (updateError) throw new Error(updateError.message);
+}
