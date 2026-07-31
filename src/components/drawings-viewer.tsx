@@ -44,6 +44,77 @@ function tileBase(file: DrawingFile, pageNo: number) {
   return `/api/tiles/${file.id}/${file.version}/${pageNo}`;
 }
 
+function PdfSheetView({
+  file,
+  pdfOnly,
+  failed,
+}: {
+  file: DrawingFile;
+  pdfOnly: boolean;
+  failed?: boolean;
+}) {
+  const pdfUrl = file.pdfUrl ?? `/api/drawings/${file.id}/pdf`;
+
+  return (
+    <div>
+      <div
+        className={`mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 ${
+          failed
+            ? "border-weld/40 bg-weld/10"
+            : "border-rule bg-paper"
+        }`}
+      >
+        <div>
+          {failed ? (
+            <>
+              <p className="font-display text-sm text-weld">Processing failed</p>
+              <p className="mt-0.5 text-xs text-graph">
+                Deep zoom could not be generated. The original PDF is shown below —
+                re-upload or retry from the drawings list.
+              </p>
+            </>
+          ) : pdfOnly ? (
+            <>
+              <p className="font-display text-sm text-ink">PDF preview</p>
+              <p className="mt-0.5 text-xs text-graph">
+                Deep zoom is unavailable — the tiling worker is not running. You
+                can still view the original PDF.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-display text-sm text-ink">Preparing deep zoom…</p>
+              <p className="mt-0.5 text-xs text-graph">
+                Showing the original PDF while tiles are generated. This view
+                updates automatically.
+              </p>
+            </>
+          )}
+        </div>
+        <a
+          href={pdfUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 text-xs text-weld hover:underline"
+        >
+          Open PDF
+        </a>
+      </div>
+      <object
+        data={pdfUrl}
+        type="application/pdf"
+        className="h-[70vh] w-full rounded-xl border border-rule bg-paper"
+      >
+        <iframe
+          title={file.name}
+          src={pdfUrl}
+          className="h-[70vh] w-full rounded-xl border border-rule bg-paper"
+        />
+      </object>
+    </div>
+  );
+}
+
 export function DrawingsViewer({
   files,
   projectId,
@@ -418,63 +489,11 @@ function SheetViewer({
   const selected = markups.find((m) => m.id === selectedId) ?? null;
 
   if (failed) {
-    return (
-      <div className="rounded border border-weld/40 bg-weld/10 px-4 py-6 text-sm text-weld">
-        Sheet processing failed. Re-upload to try again.
-      </div>
-    );
+    return <PdfSheetView file={file} pdfOnly={pdfOnly} failed />;
   }
 
   if (!ready) {
-    if (file.pdfUrl) {
-      return (
-        <div>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rule bg-paper px-4 py-3">
-            <div>
-              {pdfOnly ? (
-                <>
-                  <p className="font-display text-sm text-ink">PDF preview</p>
-                  <p className="mt-0.5 text-xs text-graph">
-                    Deep zoom is unavailable — the tiling worker is not running.
-                    You can still view and mark up the original PDF.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="font-display text-sm text-ink">Preparing deep zoom…</p>
-                  <p className="mt-0.5 text-xs text-graph">
-                    Showing the original PDF while tiles are generated. This view
-                    updates automatically.
-                  </p>
-                </>
-              )}
-            </div>
-            <a
-              href={file.pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 text-xs text-weld hover:underline"
-            >
-              Open PDF
-            </a>
-          </div>
-          <iframe
-            title={file.name}
-            src={file.pdfUrl}
-            className="h-[70vh] w-full rounded-xl border border-rule bg-paper"
-          />
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col items-center justify-center rounded border border-dashed border-rule py-16 text-center">
-        <p className="font-display text-lg text-ink">Preparing sheets…</p>
-        <p className="mt-2 max-w-sm text-sm text-graph">
-          The drawing is being tiled for deep zoom. This view updates automatically.
-        </p>
-      </div>
-    );
+    return <PdfSheetView file={file} pdfOnly={pdfOnly} />;
   }
 
   return (

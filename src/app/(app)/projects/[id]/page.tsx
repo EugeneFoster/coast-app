@@ -140,19 +140,6 @@ export default async function ProjectPage({
     }
   }
 
-  const pdfFallback = new Map<string, string>();
-  if (drawingRows.length > 0) {
-    const { data: signed } = await supabase.storage
-      .from("project-drawings")
-      .createSignedUrls(
-        drawingRows.map((d) => d.file_path),
-        86400,
-      );
-    (signed ?? []).forEach((s, i) => {
-      if (s.signedUrl) pdfFallback.set(drawingRows[i].id, s.signedUrl);
-    });
-  }
-
   const drawingFiles = drawingRows.map((d, i) => ({
     id: d.id,
     name: d.original_name ?? `Drawing ${i + 1}`,
@@ -160,7 +147,7 @@ export default async function ProjectPage({
     version: d.version ?? 1,
     pageCount: d.page_count ?? null,
     pages: pagesByDrawing.get(d.id) ?? [],
-    pdfUrl: pdfFallback.get(d.id) ?? null,
+    pdfUrl: `/api/drawings/${d.id}/pdf`,
     pdfOnly: isPdfOnlyDrawing(d),
   }));
 
