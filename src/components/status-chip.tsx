@@ -19,7 +19,7 @@ const styles: Record<ProjectStatus, string> = {
 export function StatusChip({ status }: { status: ProjectStatus }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-mono uppercase tracking-wide ${styles[status]}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-xs ${styles[status]}`}
     >
       {labels[status]}
     </span>

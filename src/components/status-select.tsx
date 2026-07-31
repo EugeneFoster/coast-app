@@ -13,9 +13,11 @@ const options: { value: ProjectStatus; label: string }[] = [
 export function StatusSelect({
   projectId,
   current,
+  compact = false,
 }: {
   projectId: string;
   current: ProjectStatus;
+  compact?: boolean;
 }) {
   return (
     <select
@@ -23,7 +25,10 @@ export function StatusSelect({
       onChange={(e) =>
         updateProjectStatus(projectId, e.target.value as ProjectStatus)
       }
-      className="rounded border border-rule bg-paper px-3 py-1.5 text-sm text-ink focus:border-weld focus:outline-none"
+      onClick={(e) => e.stopPropagation()}
+      className={`rounded border border-rule bg-paper text-ink focus:border-weld focus:outline-none ${
+        compact ? "px-2 py-0.5 text-xs" : "px-3 py-1.5 text-sm"
+      }`}
     >
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>

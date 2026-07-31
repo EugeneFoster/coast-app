@@ -9,6 +9,7 @@ import { ProjectNameEditor } from "@/components/project-name-editor";
 import { ProjectKebab } from "@/components/project-kebab";
 import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
+import { resolveCoverUrl } from "@/lib/covers";
 
 type ProfileLite = {
   id: string;
@@ -70,10 +71,7 @@ export default async function ProjectPage({
     .eq("project_id", id)
     .order("created_at", { ascending: false });
 
-  // Cover (public bucket → public URL)
-  const coverUrl = project.cover_url
-    ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/project-covers/${project.cover_url}`
-    : null;
+  const coverUrl = resolveCoverUrl(project.cover_url);
 
   // Model (private bucket → signed URL)
   let modelUrl: string | null = null;

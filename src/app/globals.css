@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "@fontsource/oswald/400.css";
+@import "@fontsource/oswald/500.css";
 
 :root {
   --ink: #17181b;
@@ -7,14 +9,6 @@
   --graph: #6c6e73;
   --rule: #dbd7cb;
   --weld: #cb5530;
-
-  /* Blueprint backdrop */
-  --bp-base: #e4ebf2;
-  --bp-panel: #eef3f9;
-  --bp-minor: rgba(46, 86, 140, 0.022);
-  --bp-major: rgba(46, 86, 140, 0.06);
-  --bp-overlay: rgba(20, 40, 70, 0.04);
-  --bp-major-size: 132px;
 }
 
 .dark {
@@ -24,14 +18,6 @@
   --graph: #9a9ca1;
   --rule: #2e2f34;
   --weld: #e0673c;
-
-  /* Blueprint backdrop — darker, less saturated, muted grid */
-  --bp-base: #0b1420;
-  --bp-panel: #11202f;
-  --bp-minor: rgba(125, 160, 200, 0.022);
-  --bp-major: rgba(125, 160, 200, 0.055);
-  --bp-overlay: rgba(4, 10, 18, 0.3);
-  --bp-major-size: 132px;
 }
 
 @theme inline {
@@ -41,7 +27,7 @@
   --color-graph: var(--graph);
   --color-rule: var(--rule);
   --color-weld: var(--weld);
-  --font-display: var(--font-oswald);
+  --font-display: "Oswald", ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
@@ -49,72 +35,24 @@
 
 body {
   color: var(--ink);
-  background-color: var(--bp-base);
-  /* A flat overlay sits above the grid (improves card contrast); the two
-     minor lines are far fainter than the wider-spaced major lines. */
-  background-image:
-    linear-gradient(var(--bp-overlay), var(--bp-overlay)),
-    linear-gradient(var(--bp-minor) 1px, transparent 1px),
-    linear-gradient(90deg, var(--bp-minor) 1px, transparent 1px),
-    linear-gradient(var(--bp-major) 1px, transparent 1px),
-    linear-gradient(90deg, var(--bp-major) 1px, transparent 1px);
-  background-size:
-    100% 100%,
-    22px 22px,
-    22px 22px,
-    var(--bp-major-size) var(--bp-major-size),
-    var(--bp-major-size) var(--bp-major-size);
-  background-position:
-    0 0,
-    -1px -1px,
-    -1px -1px,
-    -1px -1px,
-    -1px -1px;
-  background-attachment: fixed;
+  background-color: var(--bone);
 }
 
-/* Reusable blueprint surface */
-.blueprint,
-.blueprint-panel {
-  background-image:
-    linear-gradient(var(--bp-overlay), var(--bp-overlay)),
-    linear-gradient(var(--bp-minor) 1px, transparent 1px),
-    linear-gradient(90deg, var(--bp-minor) 1px, transparent 1px),
-    linear-gradient(var(--bp-major) 1px, transparent 1px),
-    linear-gradient(90deg, var(--bp-major) 1px, transparent 1px);
-  background-size:
-    100% 100%,
-    22px 22px,
-    22px 22px,
-    var(--bp-major-size) var(--bp-major-size),
-    var(--bp-major-size) var(--bp-major-size);
-  background-position:
-    0 0,
-    -1px -1px,
-    -1px -1px,
-    -1px -1px,
-    -1px -1px;
-}
-
+/* Warm ink-on-bone drafting grid — texture behind cards, not on surfaces */
 .blueprint {
-  background-color: var(--bp-base);
-}
-
-/* Sidebar surface: always dark blueprint in both themes.
-   Scoped token overrides flip text/border utilities to light. */
-.blueprint-panel {
-  --bp-minor: rgba(150, 185, 225, 0.03);
-  --bp-major: rgba(150, 185, 225, 0.07);
-  --bp-overlay: rgba(0, 0, 0, 0);
-  --ink: #eef2f7;
-  --rule: rgba(238, 242, 247, 0.1);
-  background-color: #13212f;
+  background-color: var(--bone);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--ink) 10%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ink) 10%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px, 22px 22px, 110px 110px, 110px 110px;
 }
 
 .font-display {
-  font-family: var(--font-oswald), sans-serif;
+  font-family: var(--font-display);
 }
 
 .font-mono {
-  font-family: var(--font-jetbrains-mono), monospace;
+  font-family: var(--font-mono), monospace;
 }

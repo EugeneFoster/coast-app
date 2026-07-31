@@ -1,9 +1,10 @@
-import { requireUser } from "@/lib/auth";
+import { requireUser, isAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { ProjectCard } from "@/components/project-card";
 
 export default async function ArchivePage() {
-  await requireUser();
+  const { profile } = await requireUser();
+  const admin = isAdmin(profile);
 
   const supabase = await createClient();
   const { data: projects } = await supabase
@@ -20,7 +21,7 @@ export default async function ArchivePage() {
       {projects && projects.length > 0 ? (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard key={project.id} project={project} canEdit={admin} />
           ))}
         </div>
       ) : (
