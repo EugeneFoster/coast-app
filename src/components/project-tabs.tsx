@@ -6,6 +6,8 @@ import { ModelPreview } from "@/components/model-preview";
 import { DrawingsViewer, type DrawingFile } from "@/components/drawings-viewer";
 import type { MarkupWithThread } from "@/lib/types";
 import { CoverImage } from "@/components/cover-image";
+import { ProjectDescriptionEditor } from "@/components/project-description-editor";
+import { ProjectDrawingsManager } from "@/components/project-drawings-manager";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
 
@@ -86,16 +88,21 @@ export function ProjectTabs({
 
       {tab === "overview" && (
         <OverviewPanel
+          projectId={projectId}
           name={name}
           coverUrl={coverUrl}
           coverPath={coverPath}
           description={description}
           modelUrl={modelUrl}
           weldersSlot={weldersSlot}
+          isAdminUser={isAdminUser}
         />
       )}
       {tab === "drawings" && (
         <div className="mt-6">
+          {isAdminUser && (
+            <ProjectDrawingsManager projectId={projectId} drawings={drawings} />
+          )}
           {drawings.length > 0 ? (
             <DrawingsViewer
               files={drawings}
@@ -103,9 +110,9 @@ export function ProjectTabs({
               isAdminUser={isAdminUser}
               initialMarkupsByDrawing={markupsByDrawing}
             />
-          ) : (
+          ) : !isAdminUser ? (
             <p className="text-sm text-graph">No drawings uploaded.</p>
-          )}
+          ) : null}
         </div>
       )}
       {tab === "gallery" && (
@@ -120,19 +127,23 @@ export function ProjectTabs({
 }
 
 function OverviewPanel({
+  projectId,
   name,
   coverUrl,
   coverPath,
   description,
   modelUrl,
   weldersSlot,
+  isAdminUser,
 }: {
+  projectId: string;
   name: string;
   coverUrl: string | null;
   coverPath: string | null;
   description: string | null;
   modelUrl: string | null;
   weldersSlot?: ReactNode;
+  isAdminUser: boolean;
 }) {
   return (
     <div className="mt-6 space-y-8">
@@ -149,7 +160,12 @@ function OverviewPanel({
         )}
         <div>
           <h2 className="font-display text-2xl font-medium text-ink">{name}</h2>
-          {description ? (
+          {isAdminUser ? (
+            <ProjectDescriptionEditor
+              projectId={projectId}
+              initialDescription={description}
+            />
+          ) : description ? (
             <p className="mt-3 whitespace-pre-wrap text-sm text-graph">
               {description}
             </p>

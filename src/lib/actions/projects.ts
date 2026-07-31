@@ -161,6 +161,113 @@ export async function updateProjectName(projectId: string, name: string) {
   revalidatePath(`/projects/${projectId}`);
 }
 
+export async function updateProjectDescription(
+  projectId: string,
+  description: string,
+) {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ description: description.trim() || null })
+    .eq("id", projectId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+async function syncDrawingCount(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+) {
+  const { count, error: countError } = await supabase
+    .from("drawings")
+    .select("*", { count: "exact", head: true })
+    .eq("project_id", projectId);
+  if (countError) throw new Error(countError.message);
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ drawing_count: count ?? 0 })
+    .eq("id", projectId);
+  if (error) throw new Error(error.message);
+}
+
+export async function addProjectDrawings(
+  projectId: string,
+  drawings: { path: string; originalName: string }[],
+): Promise<{ error?: string }> {
+  await requireAdmin();
+  if (drawings.length === 0) return { error: "No drawings provided." };
+  if (drawings.some((d) => !PDF_RE.test(d.path))) {
+    return { error: "Drawings must be PDF files." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Your session has expired. Please sign in again." };
+
+  const { data: inserted, error: drawingError } = await supabase
+    .from("drawings")
+    .insert(
+      drawings.map((d) => ({
+        project_id: projectId,
+        file_path: d.path,
+        original_name: d.originalName,
+        uploaded_by: user.id,
+      })),
+    )
+    .select("id, file_path");
+  if (drawingError) return { error: drawingError.message };
+
+  for (const d of inserted ?? []) {
+    await enqueueTiling({
+      drawingId: d.id,
+      version: 1,
+      pdfStorageKey: d.file_path,
+    });
+  }
+
+  await syncDrawingCount(supabase, projectId);
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}
+
+export async function deleteProjectDrawing(
+  projectId: string,
+  drawingId: string,
+): Promise<{ error?: string }> {
+  await requireAdmin();
+  const supabase = await createClient();
+  const admin = createAdminClient();
+
+  const { data: drawing } = await supabase
+    .from("drawings")
+    .select("file_path")
+    .eq("id", drawingId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+  if (!drawing) return { error: "Drawing not found." };
+
+  await admin.storage.from("project-drawings").remove([drawing.file_path]);
+
+  const { error } = await supabase
+    .from("drawings")
+    .delete()
+    .eq("id", drawingId)
+    .eq("project_id", projectId);
+  if (error) return { error: error.message };
+
+  await syncDrawingCount(supabase, projectId);
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}
+
 export async function updateProjectStatus(
   projectId: string,
   status: ProjectStatus,
