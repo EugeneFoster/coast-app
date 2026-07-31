@@ -237,6 +237,37 @@ export async function addProjectDrawings(
   return {};
 }
 
+export async function retryDrawingTiling(
+  projectId: string,
+  drawingId: string,
+): Promise<{ error?: string; queued?: boolean }> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { data: drawing } = await supabase
+    .from("drawings")
+    .select("id, file_path, version")
+    .eq("id", drawingId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+  if (!drawing) return { error: "Drawing not found." };
+
+  const { error } = await supabase
+    .from("drawings")
+    .update({ status: "processing", error: null })
+    .eq("id", drawingId);
+  if (error) return { error: error.message };
+
+  const queued = await enqueueTiling({
+    drawingId: drawing.id,
+    version: drawing.version ?? 1,
+    pdfStorageKey: drawing.file_path,
+  });
+
+  revalidatePath(`/projects/${projectId}`);
+  return { queued };
+}
+
 export async function deleteProjectDrawing(
   projectId: string,
   drawingId: string,

@@ -120,9 +120,17 @@ function SheetViewer({
   isAdminUser: boolean;
   initialMarkups: MarkupWithThread[];
 }) {
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const ready = file.status === "ready" && file.pages.length > 0;
   const failed = file.status === "failed";
+  const processing = file.status === "processing";
+
+  useEffect(() => {
+    if (!processing) return;
+    const id = window.setInterval(() => router.refresh(), 5000);
+    return () => window.clearInterval(id);
+  }, [processing, router]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -416,6 +424,35 @@ function SheetViewer({
   }
 
   if (!ready) {
+    if (file.pdfUrl) {
+      return (
+        <div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rule bg-paper px-4 py-3">
+            <div>
+              <p className="font-display text-sm text-ink">Preparing deep zoom…</p>
+              <p className="mt-0.5 text-xs text-graph">
+                Showing the original PDF while tiles are generated. This view updates
+                automatically.
+              </p>
+            </div>
+            <a
+              href={file.pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 text-xs text-weld hover:underline"
+            >
+              Open PDF
+            </a>
+          </div>
+          <iframe
+            title={file.name}
+            src={file.pdfUrl}
+            className="h-[70vh] w-full rounded-xl border border-rule bg-paper"
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col items-center justify-center rounded border border-dashed border-rule py-16 text-center">
         <p className="font-display text-lg text-ink">Preparing sheets…</p>

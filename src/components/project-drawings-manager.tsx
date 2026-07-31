@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   addProjectDrawings,
   deleteProjectDrawing,
+  retryDrawingTiling,
 } from "@/lib/actions/projects";
 import type { DrawingFile } from "@/components/drawings-viewer";
 
@@ -29,7 +30,9 @@ export function ProjectDrawingsManager({
 
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [workerWarning, setWorkerWarning] = useState<string | null>(null);
 
   async function onUpload(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -65,6 +68,26 @@ export function ProjectDrawingsManager({
       setError(caught instanceof Error ? caught.message : "Upload failed.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function onRetry(drawingId: string) {
+    setError(null);
+    setWorkerWarning(null);
+    setRetryingId(drawingId);
+    try {
+      const result = await retryDrawingTiling(projectId, drawingId);
+      if (result.error) throw new Error(result.error);
+      if (result.queued === false) {
+        setWorkerWarning(
+          "Tiling worker is not configured (REDIS_URL). The PDF still displays while processing.",
+        );
+      }
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Retry failed.");
+    } finally {
+      setRetryingId(null);
     }
   }
 
@@ -119,6 +142,12 @@ export function ProjectDrawingsManager({
         </p>
       )}
 
+      {workerWarning && (
+        <p className="mt-3 rounded border border-rule bg-bone px-3 py-2 text-sm text-graph">
+          {workerWarning}
+        </p>
+      )}
+
       {drawings.length > 0 ? (
         <ul className="mt-4 divide-y divide-rule">
           {drawings.map((d) => (
@@ -133,14 +162,26 @@ export function ProjectDrawingsManager({
                   {d.pageCount != null ? ` · ${d.pageCount} sheets` : ""}
                 </p>
               </div>
-              <button
-                type="button"
-                disabled={deletingId === d.id}
-                onClick={() => onDelete(d.id, d.name)}
-                className="shrink-0 text-xs text-graph hover:text-weld disabled:opacity-50"
-              >
-                {deletingId === d.id ? "Deleting…" : "Delete"}
-              </button>
+              <div className="flex shrink-0 items-center gap-3">
+                {(d.status === "processing" || d.status === "failed") && (
+                  <button
+                    type="button"
+                    disabled={retryingId === d.id}
+                    onClick={() => onRetry(d.id)}
+                    className="text-xs text-graph hover:text-ink disabled:opacity-50"
+                  >
+                    {retryingId === d.id ? "Retrying…" : "Retry"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={deletingId === d.id}
+                  onClick={() => onDelete(d.id, d.name)}
+                  className="text-xs text-graph hover:text-weld disabled:opacity-50"
+                >
+                  {deletingId === d.id ? "Deleting…" : "Delete"}
+                </button>
+              </div>
             </li>
           ))}
         </ul>
