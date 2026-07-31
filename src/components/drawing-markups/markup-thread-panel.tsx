@@ -34,7 +34,7 @@ export function MarkupThreadPanel({
       <div className="flex items-start justify-between gap-2 border-b border-rule p-4">
         <div>
           <p className="font-display text-sm font-medium text-ink">
-            {markup.title ?? "Markup"}
+            {markup.title ?? (markup.kind === "ink" ? "Ink markup" : "Markup")}
           </p>
           <p className="mt-0.5 font-mono text-xs text-graph">
             {authorLabel(markup)} · rev {markup.version}

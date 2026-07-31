@@ -1,6 +1,5 @@
 /**
- * Offline queue for markups, comments, and photos (IndexedDB).
- * Optimistic local IDs sync when back online.
+ * Offline queue for markups, comments, photos, ink, and status (IndexedDB).
  */
 
 const DB_NAME = "coast-markup-queue";
@@ -26,11 +25,46 @@ export type QueueOp =
       };
     }
   | {
+      type: "create_ink";
+      clientId: string;
+      payload: {
+        drawingId: string;
+        version: number;
+        pageNo: number;
+        path: { x: number; y: number }[];
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+        color: string;
+        strokeWidth: number;
+        opacity: number;
+        projectId: string;
+      };
+    }
+  | {
+      type: "delete_ink";
+      clientId: string;
+      payload: {
+        markupId: string;
+        projectId: string;
+      };
+    }
+  | {
       type: "add_comment";
       clientId: string;
       payload: {
         markupId: string;
         body: string;
+        projectId: string;
+      };
+    }
+  | {
+      type: "update_status";
+      clientId: string;
+      payload: {
+        markupId: string;
+        status: "open" | "answered" | "resolved";
         projectId: string;
       };
     }

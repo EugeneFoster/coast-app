@@ -83,6 +83,9 @@ export interface DrawingMarkup {
   w: number | null;
   h: number | null;
   path: unknown | null;
+  color: string | null;
+  stroke_width: number | null;
+  opacity: number;
   status: MarkupStatus;
   title: string | null;
   created_by: string | null;

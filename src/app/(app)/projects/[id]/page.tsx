@@ -147,7 +147,6 @@ export default async function ProjectPage({
     version: d.version ?? 1,
     pageCount: d.page_count ?? null,
     pages: pagesByDrawing.get(d.id) ?? [],
-    pdfUrl: `/api/drawings/${d.id}/pdf`,
     pdfOnly: isPdfOnlyDrawing(d),
   }));
 

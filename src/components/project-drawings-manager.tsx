@@ -7,6 +7,7 @@ import {
   addProjectDrawings,
   deleteProjectDrawing,
   retryDrawingTiling,
+  uploadDrawingRevision,
 } from "@/lib/actions/projects";
 import type { DrawingFile } from "@/components/drawings-viewer";
 
@@ -27,8 +28,11 @@ export function ProjectDrawingsManager({
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const fileRef = useRef<HTMLInputElement>(null);
+  const revisionRef = useRef<HTMLInputElement>(null);
+  const [revisionTargetId, setRevisionTargetId] = useState<string | null>(null);
 
   const [uploading, setUploading] = useState(false);
+  const [revisingId, setRevisingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +84,7 @@ export function ProjectDrawingsManager({
       if (result.error) throw new Error(result.error);
       if (result.queued === false) {
         setWorkerWarning(
-          "Tiling worker is not configured (REDIS_URL). The PDF still displays while processing.",
+          "Tiling worker is not configured (REDIS_URL). Deep zoom will be unavailable until the worker is running.",
         );
       }
       router.refresh();
@@ -88,6 +92,46 @@ export function ProjectDrawingsManager({
       setError(caught instanceof Error ? caught.message : "Retry failed.");
     } finally {
       setRetryingId(null);
+    }
+  }
+
+  async function onRevisionFile(files: FileList | null) {
+    if (!files?.[0] || !revisionTargetId) return;
+    const file = files[0];
+    setError(null);
+    setRevisingId(revisionTargetId);
+
+    try {
+      if (!PDF_RE.test(file.name)) throw new Error("Revision must be a PDF.");
+      if (file.size > MAX_PDF) throw new Error("File is too large (max 25 MB).");
+
+      const path = `${projectId}/${crypto.randomUUID()}-${sanitize(file.name)}`;
+      const { error: upErr } = await supabase.storage
+        .from("project-drawings")
+        .upload(path, file, { contentType: "application/pdf" });
+      if (upErr) throw new Error(upErr.message);
+
+      const result = await uploadDrawingRevision(
+        projectId,
+        revisionTargetId,
+        path,
+        file.name,
+      );
+      if (result.error) throw new Error(result.error);
+
+      if (result.copied && result.copied > 0) {
+        setWorkerWarning(
+          `Revision uploaded — ${result.copied} open markup(s) carried forward (needs review).`,
+        );
+      }
+
+      if (revisionRef.current) revisionRef.current.value = "";
+      setRevisionTargetId(null);
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Revision upload failed.");
+    } finally {
+      setRevisingId(null);
     }
   }
 
@@ -109,7 +153,7 @@ export function ProjectDrawingsManager({
   const statusLabel = (d: DrawingFile) => {
     if (d.status === "ready") return "Ready";
     if (d.status === "failed") return "Failed";
-    if (d.pdfOnly) return "PDF preview";
+    if (d.pdfOnly) return "Awaiting worker";
     return "Processing";
   };
 
@@ -118,6 +162,13 @@ export function ProjectDrawingsManager({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-display text-sm font-medium text-ink">Drawings</h3>
         <div>
+          <input
+            ref={revisionRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            hidden
+            onChange={(e) => onRevisionFile(e.target.files)}
+          />
           <input
             ref={fileRef}
             type="file"
@@ -161,9 +212,23 @@ export function ProjectDrawingsManager({
                 <p className="font-mono text-xs text-graph">
                   {statusLabel(d)}
                   {d.pageCount != null ? ` · ${d.pageCount} sheets` : ""}
+                  {d.version > 1 ? ` · rev ${d.version}` : ""}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-3">
+                {d.status === "ready" && (
+                  <button
+                    type="button"
+                    disabled={revisingId === d.id}
+                    onClick={() => {
+                      setRevisionTargetId(d.id);
+                      revisionRef.current?.click();
+                    }}
+                    className="text-xs text-graph hover:text-ink disabled:opacity-50"
+                  >
+                    {revisingId === d.id ? "Uploading…" : "New revision"}
+                  </button>
+                )}
                 {(d.status === "processing" || d.status === "failed") && !d.pdfOnly && (
                   <button
                     type="button"

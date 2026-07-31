@@ -125,6 +125,80 @@ export type CreateMarkupInput = {
   clientId?: string;
 };
 
+export type CreateInkMarkupInput = {
+  drawingId: string;
+  version: number;
+  pageNo: number;
+  path: { x: number; y: number }[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+  strokeWidth: number;
+  opacity: number;
+  clientId?: string;
+};
+
+export async function createInkMarkupAction(input: CreateInkMarkupInput) {
+  const { userId, projectId } = await assertDrawingMember(input.drawingId);
+  const supabase = await createClient();
+
+  const row: Record<string, unknown> = {
+    drawing_id: input.drawingId,
+    version: input.version,
+    page_no: input.pageNo,
+    kind: "ink",
+    x: input.x,
+    y: input.y,
+    w: input.w,
+    h: input.h,
+    path: input.path,
+    color: input.color,
+    stroke_width: input.strokeWidth,
+    opacity: input.opacity,
+    status: "open" as MarkupStatus,
+    title: null,
+    created_by: userId,
+  };
+  if (input.clientId) row.id = input.clientId;
+
+  const { data: markup, error } = await supabase
+    .from("drawing_markups")
+    .insert(row)
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/projects/${projectId}`);
+  return { id: markup.id };
+}
+
+export async function deleteInkMarkupAction(
+  markupId: string,
+  projectId: string,
+) {
+  const supabase = await createClient();
+  const { data: markup } = await supabase
+    .from("drawing_markups")
+    .select("drawing_id, kind")
+    .eq("id", markupId)
+    .single();
+  if (!markup) throw new Error("Markup not found");
+  if (markup.kind !== "ink") throw new Error("Only ink markups can be erased");
+
+  await assertDrawingMember(markup.drawing_id);
+
+  const { error } = await supabase
+    .from("drawing_markups")
+    .delete()
+    .eq("id", markupId)
+    .eq("kind", "ink");
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/projects/${projectId}`);
+}
+
 export async function createMarkupAction(input: CreateMarkupInput) {
   const { userId, isAdminUser, projectId } = await assertDrawingMember(
     input.drawingId,
@@ -333,6 +407,9 @@ export async function carryForwardMarkupsAction(
     w: m.w,
     h: m.h,
     path: m.path,
+    color: m.color,
+    stroke_width: m.stroke_width,
+    opacity: m.opacity ?? 1,
     status: "open" as MarkupStatus,
     title: m.title,
     created_by: m.created_by,

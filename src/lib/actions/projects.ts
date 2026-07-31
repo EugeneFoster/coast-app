@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTiling } from "@/lib/queue";
 import { PDF_ONLY_PREFIX } from "@/lib/drawing-status";
+import { carryForwardMarkupsAction } from "@/lib/actions/markups";
 import type { ProjectStatus } from "@/lib/types";
 
 const GALLERY_BUCKET = "project-gallery";
@@ -275,6 +276,58 @@ export async function retryDrawingTiling(
 
   revalidatePath(`/projects/${projectId}`);
   return { queued };
+}
+
+export async function uploadDrawingRevision(
+  projectId: string,
+  drawingId: string,
+  newPath: string,
+  originalName: string,
+): Promise<{ error?: string; copied?: number; queued?: boolean }> {
+  await requireAdmin();
+  if (!PDF_RE.test(newPath)) return { error: "Drawings must be PDF files." };
+
+  const supabase = await createClient();
+  const { data: drawing } = await supabase
+    .from("drawings")
+    .select("id, file_path, version")
+    .eq("id", drawingId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+  if (!drawing) return { error: "Drawing not found." };
+
+  const fromVersion = drawing.version ?? 1;
+  const toVersion = fromVersion + 1;
+
+  const { error } = await supabase
+    .from("drawings")
+    .update({
+      file_path: newPath,
+      original_name: originalName,
+      version: toVersion,
+      status: "processing",
+      page_count: null,
+      error: null,
+    })
+    .eq("id", drawingId);
+  if (error) return { error: error.message };
+
+  const queued = await queueDrawingTiling(supabase, {
+    id: drawingId,
+    file_path: newPath,
+    version: toVersion,
+  });
+
+  const { copied } = await carryForwardMarkupsAction(
+    drawingId,
+    fromVersion,
+    toVersion,
+    projectId,
+  );
+
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`);
+  return { copied, queued };
 }
 
 export async function deleteProjectDrawing(

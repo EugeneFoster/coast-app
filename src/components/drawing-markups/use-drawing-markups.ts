@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import type { MarkupWithThread } from "@/lib/types";
 import {
   createMarkupAction,
+  createInkMarkupAction,
+  deleteInkMarkupAction,
   addMarkupCommentAction,
   updateMarkupStatusAction,
   registerMarkupPhoto,
@@ -58,10 +60,23 @@ export function useDrawingMarkups({
             ...op.payload,
             clientId: op.clientId,
           });
+        } else if (op.type === "create_ink") {
+          await createInkMarkupAction({
+            ...op.payload,
+            clientId: op.clientId,
+          });
+        } else if (op.type === "delete_ink") {
+          await deleteInkMarkupAction(op.payload.markupId, op.payload.projectId);
         } else if (op.type === "add_comment") {
           await addMarkupCommentAction(
             op.payload.markupId,
             op.payload.body,
+            op.payload.projectId,
+          );
+        } else if (op.type === "update_status") {
+          await updateMarkupStatusAction(
+            op.payload.markupId,
+            op.payload.status,
             op.payload.projectId,
           );
         } else if (op.type === "upload_photo") {
@@ -99,7 +114,6 @@ export function useDrawingMarkups({
     if (online) void flushQueue();
   }, [online, flushQueue]);
 
-  // Realtime subscriptions
   useEffect(() => {
     const channel = supabase
       .channel(`markups-${drawingId}-v${version}`)
@@ -195,6 +209,9 @@ export function useDrawingMarkups({
         w: input.w ?? null,
         h: input.h ?? null,
         path: null,
+        color: null,
+        stroke_width: null,
+        opacity: 1,
         status: "open",
         title: input.title,
         created_by: null,
@@ -255,38 +272,162 @@ export function useDrawingMarkups({
     [drawingId, version, projectId],
   );
 
+  const createInk = useCallback(
+    async (input: {
+      pageNo: number;
+      path: { x: number; y: number }[];
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      color: string;
+      strokeWidth: number;
+      opacity: number;
+    }) => {
+      const clientId = crypto.randomUUID();
+      const optimistic: MarkupWithThread = {
+        id: clientId,
+        drawing_id: drawingId,
+        version,
+        page_no: input.pageNo,
+        kind: "ink",
+        x: input.x,
+        y: input.y,
+        w: input.w,
+        h: input.h,
+        path: input.path,
+        color: input.color,
+        stroke_width: input.strokeWidth,
+        opacity: input.opacity,
+        status: "open",
+        title: null,
+        created_by: null,
+        carried_from_id: null,
+        needs_review: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        comments: [],
+        photos: [],
+      };
+
+      setMarkups((prev) => [...prev, optimistic]);
+      setPendingIds((s) => new Set(s).add(clientId));
+
+      const payload = {
+        drawingId,
+        version,
+        pageNo: input.pageNo,
+        path: input.path,
+        x: input.x,
+        y: input.y,
+        w: input.w,
+        h: input.h,
+        color: input.color,
+        strokeWidth: input.strokeWidth,
+        opacity: input.opacity,
+        projectId,
+      };
+
+      if (!isOnline()) {
+        await enqueueMarkupOp({ type: "create_ink", clientId, payload });
+        return clientId;
+      }
+
+      try {
+        const { id } = await createInkMarkupAction({ ...payload, clientId });
+        setMarkups((prev) =>
+          prev.map((m) => (m.id === clientId ? { ...m, id } : m)),
+        );
+        setPendingIds((s) => {
+          const n = new Set(s);
+          n.delete(clientId);
+          return n;
+        });
+        return id;
+      } catch {
+        await enqueueMarkupOp({ type: "create_ink", clientId, payload });
+        return clientId;
+      }
+    },
+    [drawingId, version, projectId],
+  );
+
+  const deleteInk = useCallback(
+    async (markupId: string) => {
+      setMarkups((prev) => prev.filter((m) => m.id !== markupId));
+      const clientId = crypto.randomUUID();
+
+      if (!isOnline()) {
+        await enqueueMarkupOp({
+          type: "delete_ink",
+          clientId,
+          payload: { markupId, projectId },
+        });
+        setPendingIds((s) => new Set(s).add(clientId));
+        return;
+      }
+
+      try {
+        await deleteInkMarkupAction(markupId, projectId);
+      } catch {
+        await enqueueMarkupOp({
+          type: "delete_ink",
+          clientId,
+          payload: { markupId, projectId },
+        });
+        setPendingIds((s) => new Set(s).add(clientId));
+      }
+    },
+    [projectId],
+  );
+
   const addComment = useCallback(
     async (markupId: string, body: string) => {
+      const clientId = crypto.randomUUID();
+      setMarkups((prev) =>
+        prev.map((m) =>
+          m.id === markupId
+            ? {
+                ...m,
+                comments: [
+                  ...m.comments,
+                  {
+                    id: clientId,
+                    markup_id: markupId,
+                    body,
+                    author: null,
+                    created_at: new Date().toISOString(),
+                  },
+                ],
+              }
+            : m,
+        ),
+      );
+      setPendingIds((s) => new Set(s).add(clientId));
+
       if (!isOnline()) {
-        const clientId = crypto.randomUUID();
         await enqueueMarkupOp({
           type: "add_comment",
           clientId,
           payload: { markupId, body, projectId },
         });
-        setMarkups((prev) =>
-          prev.map((m) =>
-            m.id === markupId
-              ? {
-                  ...m,
-                  comments: [
-                    ...m.comments,
-                    {
-                      id: clientId,
-                      markup_id: markupId,
-                      body,
-                      author: null,
-                      created_at: new Date().toISOString(),
-                    },
-                  ],
-                }
-              : m,
-          ),
-        );
-        setPendingIds((s) => new Set(s).add(clientId));
         return;
       }
-      await addMarkupCommentAction(markupId, body, projectId);
+
+      try {
+        await addMarkupCommentAction(markupId, body, projectId);
+        setPendingIds((s) => {
+          const n = new Set(s);
+          n.delete(clientId);
+          return n;
+        });
+      } catch {
+        await enqueueMarkupOp({
+          type: "add_comment",
+          clientId,
+          payload: { markupId, body, projectId },
+        });
+      }
     },
     [projectId],
   );
@@ -296,8 +437,27 @@ export function useDrawingMarkups({
       setMarkups((prev) =>
         prev.map((m) => (m.id === markupId ? { ...m, status } : m)),
       );
-      if (isOnline()) {
+      const clientId = crypto.randomUUID();
+
+      if (!isOnline()) {
+        await enqueueMarkupOp({
+          type: "update_status",
+          clientId,
+          payload: { markupId, status, projectId },
+        });
+        setPendingIds((s) => new Set(s).add(clientId));
+        return;
+      }
+
+      try {
         await updateMarkupStatusAction(markupId, status, projectId);
+      } catch {
+        await enqueueMarkupOp({
+          type: "update_status",
+          clientId,
+          payload: { markupId, status, projectId },
+        });
+        setPendingIds((s) => new Set(s).add(clientId));
       }
     },
     [projectId],
@@ -308,6 +468,8 @@ export function useDrawingMarkups({
     pendingIds,
     online,
     createMarkup,
+    createInk,
+    deleteInk,
     addComment,
     setStatus,
     flushQueue,

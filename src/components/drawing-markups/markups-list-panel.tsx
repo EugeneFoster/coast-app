@@ -13,6 +13,7 @@ export function MarkupsListPanel({
   onFilterPage,
   pageCount,
   onSelect,
+  kindIcon = (k) => (k === "pin" ? "●" : k === "area" ? "▢" : "✎"),
 }: {
   markups: MarkupWithThread[];
   open: boolean;
@@ -23,6 +24,7 @@ export function MarkupsListPanel({
   onFilterPage: (p: number | "all") => void;
   pageCount: number;
   onSelect: (m: MarkupWithThread) => void;
+  kindIcon?: (kind: string) => string;
 }) {
   const filtered = markups.filter((m) => {
     if (filterStatus !== "all" && m.status !== filterStatus) return false;
@@ -85,10 +87,20 @@ export function MarkupsListPanel({
                     className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-bone"
                   >
                     <span className="font-mono text-xs text-graph">
-                      {m.kind === "pin" ? "●" : "▢"}
+                      {kindIcon(m.kind)}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                      {m.title ?? "Untitled"}
+                      {m.title ?? (m.kind === "ink" ? "Ink markup" : "Untitled")}
+                      {m.carried_from_id && (
+                        <span className="ml-1 font-mono text-[0.65rem] text-graph">
+                          rev {m.version - 1}
+                        </span>
+                      )}
+                      {m.needs_review && (
+                        <span className="ml-1 text-[0.65rem] text-weld">
+                          needs review
+                        </span>
+                      )}
                     </span>
                     <span
                       className="shrink-0 rounded-[14px] border px-1.5 py-0.5 font-mono text-[0.65rem]"
