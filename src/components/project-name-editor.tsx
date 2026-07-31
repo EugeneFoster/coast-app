@@ -45,7 +45,7 @@ export function ProjectNameEditor({
       />
       <button
         type="submit"
-        className="rounded bg-weld px-3 py-1 text-sm text-paper"
+        className="btn-primary px-3 py-1 text-sm"
       >
         Save
       </button>

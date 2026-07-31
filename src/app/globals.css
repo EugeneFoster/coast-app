@@ -49,6 +49,51 @@ body {
   background-size: 22px 22px, 22px 22px, 110px 110px, 110px 110px;
 }
 
+/* Brand divider — three stacked rule lines */
+.rule3 {
+  height: 0;
+  border-top: 1px solid var(--rule);
+  box-shadow:
+    0 4px 0 -3px var(--rule),
+    0 8px 0 -3px var(--rule);
+}
+
+/* Uploaded photo covers — duotone to join the monochrome family */
+.cover-photo {
+  filter: grayscale(1) sepia(0.18) saturate(0.75) brightness(0.98) contrast(1.03);
+}
+
+.cover-photo-wrap {
+  position: relative;
+}
+
+.cover-photo-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--ink);
+  mix-blend-mode: multiply;
+  opacity: 0.1;
+  pointer-events: none;
+}
+
+.btn-primary {
+  border-radius: 8px;
+  background: var(--weld);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
+.btn-secondary {
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
 .font-display {
   font-family: var(--font-display);
 }

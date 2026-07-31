@@ -1,27 +1,19 @@
 import type { ProjectStatus } from "@/lib/types";
-
-const labels: Record<ProjectStatus, string> = {
-  planned: "Planned",
-  in_progress: "In progress",
-  in_review: "In review",
-  completed: "Completed",
-  archived: "Archived",
-};
-
-const styles: Record<ProjectStatus, string> = {
-  planned: "border-graph text-graph",
-  in_progress: "border-weld text-weld",
-  in_review: "border-ink text-ink",
-  completed: "bg-ink text-paper border-ink",
-  archived: "border-rule text-graph opacity-60",
-};
+import { STATUS } from "@/lib/status";
 
 export function StatusChip({ status }: { status: ProjectStatus }) {
+  const s = STATUS[status];
+
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-xs ${styles[status]}`}
+      className="inline-flex items-center rounded-[14px] border px-2 py-0.5 font-mono text-xs"
+      style={{
+        color: s.text,
+        borderColor: s.border,
+        backgroundColor: s.bg,
+      }}
     >
-      {labels[status]}
+      {s.label}
     </span>
   );
 }

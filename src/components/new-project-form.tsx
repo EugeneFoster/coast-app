@@ -288,7 +288,7 @@ export function NewProjectForm({ welders }: { welders: WelderOption[] }) {
       <button
         type="submit"
         disabled={pending}
-        className="rounded bg-weld px-4 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-60"
+        className="btn-primary px-4 py-2 text-sm transition-opacity hover:opacity-90 disabled:opacity-60"
       >
         {pending ? "Creating…" : "Create project"}
       </button>

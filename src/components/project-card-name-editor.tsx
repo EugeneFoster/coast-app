@@ -56,7 +56,7 @@ export function ProjectCardNameEditor({
       />
       <button
         type="submit"
-        className="shrink-0 rounded bg-weld px-2 py-0.5 text-xs text-paper"
+        className="btn-primary shrink-0 px-2 py-0.5 text-xs"
       >
         Save
       </button>

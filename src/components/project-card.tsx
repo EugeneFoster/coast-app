@@ -4,10 +4,8 @@ import { StatusChip } from "@/components/status-chip";
 import { StatusSelect } from "@/components/status-select";
 import { ProjectCardNameEditor } from "@/components/project-card-name-editor";
 import { StructureThumbnail } from "@/components/structure-thumbnail";
-import {
-  isUploadedCover,
-  resolveCoverUrl,
-} from "@/lib/covers";
+import { CoverImage } from "@/components/cover-image";
+import { resolveCoverUrl } from "@/lib/covers";
 
 export function ProjectCard({
   project,
@@ -20,27 +18,16 @@ export function ProjectCard({
   const revision = project.revision ?? 1;
   const drawings = project.drawing_count ?? 0;
   const coverSrc = resolveCoverUrl(project.cover_url);
-  const showPhoto = isUploadedCover(project.cover_url) && coverSrc;
 
   return (
-    <article className="flex flex-col overflow-hidden rounded border border-rule bg-paper transition-colors hover:border-ink/30">
+    <article className="flex flex-col overflow-hidden rounded-xl border border-rule bg-paper transition-colors hover:border-ink/30">
       <Link href={`/projects/${project.id}`} className="block">
-        {showPhoto ? (
+        {coverSrc ? (
           <div className="h-32 overflow-hidden border-b border-rule bg-paper">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <CoverImage
               src={coverSrc}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          </div>
-        ) : coverSrc ? (
-          <div className="h-32 overflow-hidden border-b border-rule bg-paper">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={coverSrc}
-              alt=""
-              className="h-full w-full object-cover object-top grayscale"
+              coverPath={project.cover_url}
+              className="h-full w-full object-cover object-top"
             />
           </div>
         ) : (

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ModelPreview } from "@/components/model-preview";
 import { DrawingsViewer, type DrawingFile } from "@/components/drawings-viewer";
+import { CoverImage } from "@/components/cover-image";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
 
@@ -37,6 +38,7 @@ export function ProjectTabs({
   projectId,
   name,
   coverUrl,
+  coverPath,
   description,
   modelUrl,
   drawings,
@@ -47,6 +49,7 @@ export function ProjectTabs({
   projectId: string;
   name: string;
   coverUrl: string | null;
+  coverPath: string | null;
   description: string | null;
   modelUrl: string | null;
   drawings: DrawingFile[];
@@ -80,6 +83,7 @@ export function ProjectTabs({
         <OverviewPanel
           name={name}
           coverUrl={coverUrl}
+          coverPath={coverPath}
           description={description}
           modelUrl={modelUrl}
           weldersSlot={weldersSlot}
@@ -108,12 +112,14 @@ export function ProjectTabs({
 function OverviewPanel({
   name,
   coverUrl,
+  coverPath,
   description,
   modelUrl,
   weldersSlot,
 }: {
   name: string;
   coverUrl: string | null;
+  coverPath: string | null;
   description: string | null;
   modelUrl: string | null;
   weldersSlot?: ReactNode;
@@ -122,9 +128,13 @@ function OverviewPanel({
     <div className="mt-6 space-y-8">
       <section className="grid gap-6 md:grid-cols-2 md:items-start">
         {coverUrl && (
-          <div className="overflow-hidden rounded border border-rule">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={coverUrl} alt={`${name} cover`} className="h-auto w-full" />
+          <div className="overflow-hidden rounded-xl border border-rule">
+            <CoverImage
+              src={coverUrl}
+              coverPath={coverPath}
+              alt={`${name} cover`}
+              className="h-auto w-full object-cover"
+            />
           </div>
         )}
         <div>

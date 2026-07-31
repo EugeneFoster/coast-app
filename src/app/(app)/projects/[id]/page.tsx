@@ -257,6 +257,7 @@ export default async function ProjectPage({
         projectId={id}
         name={project.name}
         coverUrl={coverUrl}
+        coverPath={project.cover_url}
         description={project.description}
         modelUrl={modelUrl}
         drawings={drawingFiles}

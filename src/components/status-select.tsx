@@ -1,14 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import type { ProjectStatus } from "@/lib/types";
 import { updateProjectStatus } from "@/lib/actions/projects";
-
-const options: { value: ProjectStatus; label: string }[] = [
-  { value: "planned", label: "Planned" },
-  { value: "in_progress", label: "In progress" },
-  { value: "in_review", label: "In review" },
-  { value: "completed", label: "Completed" },
-];
+import { EDITABLE_STATUSES, STATUS, statusStyles } from "@/lib/status";
 
 export function StatusSelect({
   projectId,
@@ -19,20 +14,26 @@ export function StatusSelect({
   current: ProjectStatus;
   compact?: boolean;
 }) {
+  const [draft, setDraft] = useState<ProjectStatus | null>(null);
+  const value = draft ?? current;
+
   return (
     <select
-      value={current}
-      onChange={(e) =>
-        updateProjectStatus(projectId, e.target.value as ProjectStatus)
-      }
+      value={value}
+      onChange={(e) => {
+        const next = e.target.value as ProjectStatus;
+        setDraft(next);
+        void updateProjectStatus(projectId, next).finally(() => setDraft(null));
+      }}
       onClick={(e) => e.stopPropagation()}
-      className={`rounded border border-rule bg-paper text-ink focus:border-weld focus:outline-none ${
+      style={statusStyles(value)}
+      className={`rounded-[14px] border font-mono focus:outline-none focus:ring-1 focus:ring-weld/40 ${
         compact ? "px-2 py-0.5 text-xs" : "px-3 py-1.5 text-sm"
       }`}
     >
-      {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
+      {EDITABLE_STATUSES.map((status) => (
+        <option key={status} value={status}>
+          {STATUS[status].label}
         </option>
       ))}
     </select>
