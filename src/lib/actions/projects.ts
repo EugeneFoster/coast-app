@@ -6,12 +6,33 @@ import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTiling } from "@/lib/queue";
+import { PDF_ONLY_PREFIX } from "@/lib/drawing-status";
 import type { ProjectStatus } from "@/lib/types";
 
 const GALLERY_BUCKET = "project-gallery";
 
 function sanitizeName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function queueDrawingTiling(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  drawing: { id: string; file_path: string; version?: number | null },
+): Promise<boolean> {
+  const queued = await enqueueTiling({
+    drawingId: drawing.id,
+    version: drawing.version ?? 1,
+    pdfStorageKey: drawing.file_path,
+  });
+  if (!queued) {
+    await supabase
+      .from("drawings")
+      .update({
+        error: `${PDF_ONLY_PREFIX} Deep zoom worker is not configured.`,
+      })
+      .eq("id", drawing.id);
+  }
+  return queued;
 }
 
 // Authorize the current user for a project (admin or assigned member).
@@ -122,11 +143,7 @@ export async function createProjectAction(
 
     // Kick off tiling for the deep-zoom viewer (no-op without REDIS_URL).
     for (const d of insertedDrawings ?? []) {
-      await enqueueTiling({
-        drawingId: d.id,
-        version: 1,
-        pdfStorageKey: d.file_path,
-      });
+      await queueDrawingTiling(supabase, d);
     }
   }
 
@@ -224,11 +241,7 @@ export async function addProjectDrawings(
   if (drawingError) return { error: drawingError.message };
 
   for (const d of inserted ?? []) {
-    await enqueueTiling({
-      drawingId: d.id,
-      version: 1,
-      pdfStorageKey: d.file_path,
-    });
+    await queueDrawingTiling(supabase, d);
   }
 
   await syncDrawingCount(supabase, projectId);
@@ -258,11 +271,7 @@ export async function retryDrawingTiling(
     .eq("id", drawingId);
   if (error) return { error: error.message };
 
-  const queued = await enqueueTiling({
-    drawingId: drawing.id,
-    version: drawing.version ?? 1,
-    pdfStorageKey: drawing.file_path,
-  });
+  const queued = await queueDrawingTiling(supabase, drawing);
 
   revalidatePath(`/projects/${projectId}`);
   return { queued };

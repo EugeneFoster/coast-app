@@ -106,9 +106,10 @@ export function ProjectDrawingsManager({
     }
   }
 
-  const statusLabel = (status: string | null) => {
-    if (status === "ready") return "Ready";
-    if (status === "failed") return "Failed";
+  const statusLabel = (d: DrawingFile) => {
+    if (d.status === "ready") return "Ready";
+    if (d.status === "failed") return "Failed";
+    if (d.pdfOnly) return "PDF preview";
     return "Processing";
   };
 
@@ -158,12 +159,12 @@ export function ProjectDrawingsManager({
               <div className="min-w-0">
                 <p className="truncate text-sm text-ink">{d.name}</p>
                 <p className="font-mono text-xs text-graph">
-                  {statusLabel(d.status)}
+                  {statusLabel(d)}
                   {d.pageCount != null ? ` · ${d.pageCount} sheets` : ""}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                {(d.status === "processing" || d.status === "failed") && (
+                {(d.status === "processing" || d.status === "failed") && !d.pdfOnly && (
                   <button
                     type="button"
                     disabled={retryingId === d.id}

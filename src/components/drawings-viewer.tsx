@@ -32,6 +32,7 @@ export type DrawingFile = {
   pageCount: number | null;
   pages: DrawingPage[];
   pdfUrl: string | null;
+  pdfOnly?: boolean;
 };
 
 type Tool = "nav" | "pin" | "area";
@@ -124,7 +125,8 @@ function SheetViewer({
   const supabase = useMemo(() => createClient(), []);
   const ready = file.status === "ready" && file.pages.length > 0;
   const failed = file.status === "failed";
-  const processing = file.status === "processing";
+  const pdfOnly = file.pdfOnly === true;
+  const processing = file.status === "processing" && !pdfOnly;
 
   useEffect(() => {
     if (!processing) return;
@@ -429,11 +431,23 @@ function SheetViewer({
         <div>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rule bg-paper px-4 py-3">
             <div>
-              <p className="font-display text-sm text-ink">Preparing deep zoom…</p>
-              <p className="mt-0.5 text-xs text-graph">
-                Showing the original PDF while tiles are generated. This view updates
-                automatically.
-              </p>
+              {pdfOnly ? (
+                <>
+                  <p className="font-display text-sm text-ink">PDF preview</p>
+                  <p className="mt-0.5 text-xs text-graph">
+                    Deep zoom is unavailable — the tiling worker is not running.
+                    You can still view and mark up the original PDF.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-display text-sm text-ink">Preparing deep zoom…</p>
+                  <p className="mt-0.5 text-xs text-graph">
+                    Showing the original PDF while tiles are generated. This view
+                    updates automatically.
+                  </p>
+                </>
+              )}
             </div>
             <a
               href={file.pdfUrl}

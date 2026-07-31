@@ -11,6 +11,8 @@ import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
 import { resolveCoverUrl } from "@/lib/covers";
 import { fetchDrawingMarkups } from "@/lib/actions/markups";
+import { enqueueTiling } from "@/lib/queue";
+import { PDF_ONLY_PREFIX, isPdfOnlyDrawing } from "@/lib/drawing-status";
 import type { MarkupWithThread } from "@/lib/types";
 
 type ProfileLite = {
@@ -92,6 +94,7 @@ export default async function ProjectPage({
     status: string | null;
     version: number | null;
     page_count: number | null;
+    error: string | null;
   };
   const drawingRows = (drawings ?? []) as DrawingRow[];
 
@@ -116,13 +119,34 @@ export default async function ProjectPage({
     }, new Map<string, { pageNo: number; width: number; height: number }[]>());
   }
 
+  // Re-queue stuck processing drawings; mark pdf-only when worker is unavailable.
+  for (const d of drawingRows) {
+    const pages = pagesByDrawing.get(d.id) ?? [];
+    if (d.status !== "processing" || pages.length > 0) continue;
+    if (isPdfOnlyDrawing(d)) continue;
+
+    const queued = await enqueueTiling({
+      drawingId: d.id,
+      version: d.version ?? 1,
+      pdfStorageKey: d.file_path,
+    });
+    if (!queued) {
+      const pdfOnlyError = `${PDF_ONLY_PREFIX} Deep zoom worker is not configured.`;
+      await adminClient
+        .from("drawings")
+        .update({ error: pdfOnlyError })
+        .eq("id", d.id);
+      d.error = pdfOnlyError;
+    }
+  }
+
   const pdfFallback = new Map<string, string>();
   if (drawingRows.length > 0) {
     const { data: signed } = await supabase.storage
       .from("project-drawings")
       .createSignedUrls(
         drawingRows.map((d) => d.file_path),
-        3600,
+        86400,
       );
     (signed ?? []).forEach((s, i) => {
       if (s.signedUrl) pdfFallback.set(drawingRows[i].id, s.signedUrl);
@@ -137,6 +161,7 @@ export default async function ProjectPage({
     pageCount: d.page_count ?? null,
     pages: pagesByDrawing.get(d.id) ?? [],
     pdfUrl: pdfFallback.get(d.id) ?? null,
+    pdfOnly: isPdfOnlyDrawing(d),
   }));
 
   const markupsByDrawing: Record<string, MarkupWithThread[]> = {};

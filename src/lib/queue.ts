@@ -37,3 +37,8 @@ export async function enqueueTiling(job: {
     return false;
   }
 }
+
+/** True when REDIS_URL is set and a queue connection can be opened. */
+export async function isTilingAvailable(): Promise<boolean> {
+  return (await getQueue()) != null;
+}
