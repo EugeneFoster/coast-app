@@ -37,42 +37,44 @@ export default async function ProjectsPage({
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-3xl font-medium text-ink">Projects</h1>
-        {admin && (
-          <Link
-            href="/projects/new"
-            className="rounded bg-weld px-4 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90"
-          >
-            New project
-          </Link>
-        )}
-      </div>
-
-      <div className="mt-6 flex gap-6">
-        {filters.map((f) => {
-          const active =
-            (f.value === "all" && !statusFilter) || statusFilter === f.value;
-          return (
+      <section className="bg-bone">
+        <div className="flex items-center justify-between">
+          <h1 className="font-display text-3xl font-medium text-ink">Projects</h1>
+          {admin && (
             <Link
-              key={f.value}
-              href={
-                f.value === "all" ? "/projects" : `/projects?status=${f.value}`
-              }
-              className={`relative pb-3 text-sm transition-colors ${
-                active ? "text-ink" : "text-graph hover:text-ink"
-              }`}
+              href="/projects/new"
+              className="rounded bg-weld px-4 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90"
             >
-              {f.label}
-              {active && (
-                <span className="absolute bottom-0 left-0 h-0.5 w-full bg-weld" />
-              )}
+              New project
             </Link>
-          );
-        })}
-      </div>
+          )}
+        </div>
 
-      <HairlineMotif className="mt-4" />
+        <div className="mt-6 flex gap-6">
+          {filters.map((f) => {
+            const active =
+              (f.value === "all" && !statusFilter) || statusFilter === f.value;
+            return (
+              <Link
+                key={f.value}
+                href={
+                  f.value === "all" ? "/projects" : `/projects?status=${f.value}`
+                }
+                className={`relative pb-3 text-sm transition-colors ${
+                  active ? "text-ink" : "text-graph hover:text-ink"
+                }`}
+              >
+                {f.label}
+                {active && (
+                  <span className="absolute bottom-0 left-0 h-0.5 w-full bg-weld" />
+                )}
+              </Link>
+            );
+          })}
+        </div>
+
+        <HairlineMotif className="mt-4" />
+      </section>
 
       {projects && projects.length > 0 ? (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
