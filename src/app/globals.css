@@ -38,7 +38,7 @@ body {
   background-color: var(--bone);
 }
 
-/* Warm ink-on-bone drafting grid — texture behind cards, not on surfaces */
+/* Warm ink-on-bone drafting grid — texture in gutters around cards only */
 .blueprint {
   background-color: var(--bone);
   background-image:

@@ -36,8 +36,8 @@ export default async function ProjectsPage({
   const { data: projects } = await query;
 
   return (
-    <div className="p-8">
-      <section className="bg-bone">
+    <>
+      <section className="bg-bone px-8 pt-8">
         <div className="flex items-center justify-between">
           <h1 className="font-display text-3xl font-medium text-ink">Projects</h1>
           {admin && (
@@ -73,18 +73,20 @@ export default async function ProjectsPage({
           })}
         </div>
 
-        <HairlineMotif className="mt-4" />
+        <HairlineMotif className="mt-4 pb-1" />
       </section>
 
-      {projects && projects.length > 0 ? (
-        <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} canEdit={admin} />
-          ))}
-        </div>
-      ) : (
-        <p className="mt-12 text-center text-graph">No projects yet</p>
-      )}
-    </div>
+      <section className="blueprint px-8 pb-8 pt-8">
+        {projects && projects.length > 0 ? (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {projects.map((project) => (
+              <ProjectCard key={project.id} project={project} canEdit={admin} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-center text-graph">No projects yet</p>
+        )}
+      </section>
+    </>
   );
 }

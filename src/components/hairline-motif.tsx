@@ -1,10 +1,13 @@
-/** Three stacked rule lines — brand divider motif on solid bone (masks blueprint grid) */
+/** Three stacked rule lines — brand divider motif on solid bone */
 export function HairlineMotif({ className = "" }: { className?: string }) {
   return (
-    <div className={`bg-bone ${className}`} aria-hidden>
-      <div className="h-px bg-rule" />
-      <div className="mt-1 h-px bg-rule" />
-      <div className="mt-1 h-px bg-rule" />
+    <div
+      className={`flex flex-col gap-2 bg-bone ${className}`}
+      aria-hidden
+    >
+      <div className="h-px shrink-0 bg-rule" />
+      <div className="h-px shrink-0 bg-rule" />
+      <div className="h-px shrink-0 bg-rule" />
     </div>
   );
 }
