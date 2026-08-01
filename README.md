@@ -68,8 +68,28 @@ Add these under the service's **Variables** tab:
 | `SUPABASE_DB_PASSWORD` | Postgres password (auto schema/migrations) |
 | `ADMIN_LOGIN` / `ADMIN_PASSWORD` | Seed owner account |
 | `DRAW_LOGIN` / `DRAW_PASSWORD` | Seed draftsperson account |
+| `REDIS_URL` | Redis connection (Railway Redis plugin) — required for drawing tiles |
+| `QUEUE_NAME` | `tile` (optional, must match worker) |
+| `R2_ENDPOINT` | Cloudflare R2 endpoint (drawing tile storage) |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 credentials |
+| `R2_BUCKET` | `coast-tiles` (optional) |
 
 Configured accounts (`ADMIN_*`, `DRAW_*`) are created/synced automatically on first sign-in.
+
+### Drawing tiles worker (second Railway service)
+
+Drawings need a **separate worker service** to turn PDFs into deep-zoom tiles. Without it, uploads stay on “Worker not configured”.
+
+1. In the same Railway project: **+ New** → **GitHub Repo** → this repo.
+2. **Settings** → **Root Directory** = `worker` (uses `worker/Dockerfile`).
+3. Add the **same** `REDIS_URL` as the web service, plus:
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+   - `R2_*` (same as web)
+   - `QUEUE_NAME=tile` (optional)
+4. Deploy. Logs should show: `[tile] worker ready on queue "tile"`.
+5. In the app, open a project → **Drawings** → **Retry** on any stuck PDF.
+
+Add Redis once for the whole project: **+ New** → **Database** → **Redis**, then reference its `REDIS_URL` on both services.
 
 ## Auth
 
