@@ -54,23 +54,28 @@ export async function getTilingJobState(
   drawingId: string,
   version: number,
 ): Promise<TilingJobState> {
-  const q = await getQueue();
-  if (!q) return { kind: "no_redis" };
+  try {
+    const q = await getQueue();
+    if (!q) return { kind: "no_redis" };
 
-  const jobId = `${drawingId}:v${version}`;
-  const job = await q.getJob(jobId);
-  if (!job) return { kind: "missing" };
+    const jobId = `${drawingId}:v${version}`;
+    const job = await q.getJob(jobId);
+    if (!job) return { kind: "missing" };
 
-  const state = await job.getState();
-  if (state === "failed") {
-    return {
-      kind: "failed",
-      error: String(job.failedReason ?? "Tiling job failed"),
-    };
+    const state = await job.getState();
+    if (state === "failed") {
+      return {
+        kind: "failed",
+        error: String(job.failedReason ?? "Tiling job failed"),
+      };
+    }
+    if (state === "completed") return { kind: "completed" };
+    if (state === "waiting" || state === "active" || state === "delayed") {
+      return { kind: state };
+    }
+    return { kind: "waiting" };
+  } catch (error) {
+    console.error("[tiling-job-state]", error);
+    return { kind: "no_redis" };
   }
-  if (state === "completed") return { kind: "completed" };
-  if (state === "waiting" || state === "active" || state === "delayed") {
-    return { kind: state };
-  }
-  return { kind: "waiting" };
 }

@@ -11,14 +11,7 @@ import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
 import { resolveCoverUrl } from "@/lib/covers";
 import { fetchDrawingMarkups } from "@/lib/actions/markups";
-import { enqueueTiling, getTilingJobState } from "@/lib/queue";
-import {
-  PDF_ONLY_PREFIX,
-  isPdfOnlyDrawing,
-  type TilingHint,
-} from "@/lib/drawing-status";
-import { scheduleInlineTiling } from "@/lib/tiling/schedule-inline";
-import { canInlineTiling } from "@/lib/tiling/tile-storage";
+import { isPdfOnlyDrawing, type TilingHint } from "@/lib/drawing-status";
 import type { MarkupWithThread } from "@/lib/types";
 
 type ProfileLite = {
@@ -105,8 +98,6 @@ export default async function ProjectPage({
   };
   const drawingRows = (drawings ?? []) as DrawingRow[];
 
-  const tilingHints = new Map<string, TilingHint>();
-
   let pagesByDrawing = new Map<
     string,
     { pageNo: number; width: number; height: number }[]
@@ -128,88 +119,11 @@ export default async function ProjectPage({
     }, new Map<string, { pageNo: number; width: number; height: number }[]>());
   }
 
-  // Re-queue stuck processing drawings; sync queue state to DB + UI hints.
-  const STALE_MS = 5 * 60 * 1000;
-  for (const d of drawingRows) {
-    const pages = pagesByDrawing.get(d.id) ?? [];
-    if (d.status === "ready" && pages.length > 0) continue;
-
-    const version = d.version ?? 1;
-    const jobState = await getTilingJobState(d.id, version);
-    const ageMs = Date.now() - new Date(d.created_at).getTime();
-
-    if (jobState.kind === "failed" && d.status !== "failed") {
-      await adminClient
-        .from("drawings")
-        .update({ status: "failed", error: jobState.error })
-        .eq("id", d.id);
-      d.status = "failed";
-      d.error = jobState.error;
-      tilingHints.set(d.id, "failed");
-      continue;
-    }
-
-    if (jobState.kind === "no_redis") {
-      const shouldTile =
-        pages.length === 0 &&
-        (d.status === "processing" || d.status === "failed" || isPdfOnlyDrawing(d));
-
-      if (shouldTile && canInlineTiling()) {
-        if (isPdfOnlyDrawing(d) || d.status === "failed") {
-          await adminClient
-            .from("drawings")
-            .update({ status: "processing", error: null })
-            .eq("id", d.id);
-          d.status = "processing";
-          d.error = null;
-        }
-        if (
-          scheduleInlineTiling({
-            drawingId: d.id,
-            version,
-            pdfStorageKey: d.file_path,
-          })
-        ) {
-          tilingHints.set(d.id, "worker_active");
-        } else {
-          tilingHints.set(d.id, "processing");
-        }
-      } else if (!canInlineTiling()) {
-        tilingHints.set(d.id, "no_redis");
-      } else {
-        tilingHints.set(d.id, "processing");
-      }
-      continue;
-    }
-
-    if (
-      d.status === "processing" &&
-      pages.length === 0 &&
-      !isPdfOnlyDrawing(d)
-    ) {
-      if (jobState.kind === "missing") {
-        await enqueueTiling({
-          drawingId: d.id,
-          version,
-          pdfStorageKey: d.file_path,
-        });
-        tilingHints.set(d.id, "queued");
-      } else if (jobState.kind === "active") {
-        tilingHints.set(d.id, "worker_active");
-      } else if (jobState.kind === "waiting" || jobState.kind === "delayed") {
-        tilingHints.set(
-          d.id,
-          ageMs > STALE_MS ? "worker_offline" : "queued",
-        );
-      } else if (jobState.kind === "completed" && pages.length === 0) {
-        // Worker finished but pages not visible yet — refresh will pick them up.
-        tilingHints.set(d.id, "processing");
-      } else {
-        tilingHints.set(d.id, "processing");
-      }
-    } else if (d.status === "failed") {
-      tilingHints.set(d.id, "failed");
-    }
+  function tilingHintFor(d: DrawingRow): TilingHint {
+    if (d.status === "failed") return "failed";
+    if (d.status === "ready") return "processing";
+    if (isPdfOnlyDrawing(d)) return "no_redis";
+    return "processing";
   }
 
   const drawingFiles = drawingRows.map((d, i) => ({
@@ -220,14 +134,18 @@ export default async function ProjectPage({
     pageCount: d.page_count ?? null,
     pages: pagesByDrawing.get(d.id) ?? [],
     pdfOnly: isPdfOnlyDrawing(d),
-    tilingHint: tilingHints.get(d.id) ?? "processing",
+    tilingHint: tilingHintFor(d),
     tilingError: d.error,
   }));
 
   const markupsByDrawing: Record<string, MarkupWithThread[]> = {};
   for (const d of drawingRows) {
     const version = d.version ?? 1;
-    markupsByDrawing[d.id] = await fetchDrawingMarkups(d.id, version);
+    try {
+      markupsByDrawing[d.id] = await fetchDrawingMarkups(d.id, version);
+    } catch {
+      markupsByDrawing[d.id] = [];
+    }
   }
 
   // Gallery (private bucket → signed URLs)

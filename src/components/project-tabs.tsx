@@ -8,6 +8,7 @@ import type { MarkupWithThread } from "@/lib/types";
 import { CoverImage } from "@/components/cover-image";
 import { ProjectDescriptionEditor } from "@/components/project-description-editor";
 import { ProjectDrawingsManager } from "@/components/project-drawings-manager";
+import { DrawingTilingBoot } from "@/components/drawing-tiling-boot";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
 
@@ -100,6 +101,7 @@ export function ProjectTabs({
       )}
       {tab === "drawings" && (
         <div className="mt-6">
+          <DrawingTilingBoot drawings={drawings} />
           {isAdminUser && (
             <ProjectDrawingsManager projectId={projectId} drawings={drawings} />
           )}
