@@ -18,7 +18,7 @@ import {
   type TilingHint,
 } from "@/lib/drawing-status";
 import { scheduleInlineTiling } from "@/lib/tiling/schedule-inline";
-import { canInlineTiling } from "@/lib/tiling/can-inline";
+import { canInlineTiling } from "@/lib/tiling/tile-storage";
 import type { MarkupWithThread } from "@/lib/types";
 
 type ProfileLite = {
@@ -150,28 +150,34 @@ export default async function ProjectPage({
     }
 
     if (jobState.kind === "no_redis") {
-      if (
-        d.status === "processing" &&
+      const shouldTile =
         pages.length === 0 &&
-        scheduleInlineTiling({
-          drawingId: d.id,
-          version,
-          pdfStorageKey: d.file_path,
-        })
-      ) {
-        tilingHints.set(d.id, "worker_active");
-      } else if (d.status === "processing" && !isPdfOnlyDrawing(d)) {
-        const pdfOnlyError = canInlineTiling()
-          ? `${PDF_ONLY_PREFIX} Tiling could not start on this server.`
-          : `${PDF_ONLY_PREFIX} Configure R2_* env vars or deploy worker/ with Redis.`;
-        await adminClient
-          .from("drawings")
-          .update({ error: pdfOnlyError })
-          .eq("id", d.id);
-        d.error = pdfOnlyError;
+        (d.status === "processing" || d.status === "failed" || isPdfOnlyDrawing(d));
+
+      if (shouldTile && canInlineTiling()) {
+        if (isPdfOnlyDrawing(d) || d.status === "failed") {
+          await adminClient
+            .from("drawings")
+            .update({ status: "processing", error: null })
+            .eq("id", d.id);
+          d.status = "processing";
+          d.error = null;
+        }
+        if (
+          scheduleInlineTiling({
+            drawingId: d.id,
+            version,
+            pdfStorageKey: d.file_path,
+          })
+        ) {
+          tilingHints.set(d.id, "worker_active");
+        } else {
+          tilingHints.set(d.id, "processing");
+        }
+      } else if (!canInlineTiling()) {
         tilingHints.set(d.id, "no_redis");
       } else {
-        tilingHints.set(d.id, "no_redis");
+        tilingHints.set(d.id, "processing");
       }
       continue;
     }

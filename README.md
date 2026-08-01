@@ -79,7 +79,8 @@ Configured accounts (`ADMIN_*`, `DRAW_*`) are created/synced automatically on fi
 ### Drawing tiles
 
 **Default (no Redis):** the web service tiles PDFs inline using `poppler-utils` + `libvips`
-(install via root `nixpacks.toml`). You only need the `R2_*` variables above.
+(root `Dockerfile` or `nixpacks.toml`). Tiles are stored in Supabase Storage bucket
+`drawing-tiles` (or Cloudflare R2 when `R2_*` is set).
 
 **Optional worker:** for heavy load, add Redis + a second service with root directory
 `worker/` (see `worker/README.md`). Jobs enqueue to Redis when `REDIS_URL` is set.

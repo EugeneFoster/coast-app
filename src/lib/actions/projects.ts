@@ -8,8 +8,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTiling } from "@/lib/queue";
 import { PDF_ONLY_PREFIX } from "@/lib/drawing-status";
 import { carryForwardMarkupsAction } from "@/lib/actions/markups";
+import { canInlineTiling } from "@/lib/tiling/tile-storage";
+import { processDrawingInline } from "@/lib/tiling/process-drawing";
 import { scheduleInlineTiling } from "@/lib/tiling/schedule-inline";
-import { canInlineTiling } from "@/lib/tiling/can-inline";
 import type { ProjectStatus } from "@/lib/types";
 
 const GALLERY_BUCKET = "project-gallery";
@@ -44,9 +45,7 @@ async function queueDrawingTiling(
     return true;
   }
 
-  const msg = canInlineTiling()
-    ? `${PDF_ONLY_PREFIX} Tiling tools unavailable on this server.`
-    : `${PDF_ONLY_PREFIX} Configure R2_* env vars (and redeploy with nixpacks.toml) or deploy the worker/ service with Redis.`;
+  const msg = `${PDF_ONLY_PREFIX} Tiling could not start — check server logs after Retry.`;
 
   await supabase
     .from("drawings")
@@ -273,7 +272,7 @@ export async function addProjectDrawings(
 export async function retryDrawingTiling(
   projectId: string,
   drawingId: string,
-): Promise<{ error?: string; queued?: boolean }> {
+): Promise<{ error?: string; queued?: boolean; processing?: boolean }> {
   await requireAdmin();
   const supabase = await createClient();
 
@@ -285,16 +284,48 @@ export async function retryDrawingTiling(
     .maybeSingle();
   if (!drawing) return { error: "Drawing not found." };
 
+  const version = drawing.version ?? 1;
+
   const { error } = await supabase
     .from("drawings")
     .update({ status: "processing", error: null })
     .eq("id", drawingId);
   if (error) return { error: error.message };
 
-  const queued = await queueDrawingTiling(supabase, drawing);
+  const queued = await enqueueTiling({
+    drawingId: drawing.id,
+    version,
+    pdfStorageKey: drawing.file_path,
+  });
+  if (queued) {
+    revalidatePath(`/projects/${projectId}`);
+    return { queued: true };
+  }
+
+  if (canInlineTiling()) {
+    try {
+      await processDrawingInline({
+        drawingId: drawing.id,
+        version,
+        pdfStorageKey: drawing.file_path,
+      });
+      revalidatePath(`/projects/${projectId}`);
+      return { queued: true, processing: true };
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Tiling failed";
+      return { error: message };
+    }
+  }
+
+  await supabase
+    .from("drawings")
+    .update({
+      error: `${PDF_ONLY_PREFIX} Server cannot tile drawings (missing Supabase service role).`,
+    })
+    .eq("id", drawingId);
 
   revalidatePath(`/projects/${projectId}`);
-  return { queued };
+  return { queued: false };
 }
 
 export async function uploadDrawingRevision(

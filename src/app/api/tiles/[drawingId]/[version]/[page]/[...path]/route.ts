@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getR2Object } from "@/lib/r2";
+import { getTileObject } from "@/lib/tiling/tile-storage";
 
 export const runtime = "nodejs";
 
@@ -77,7 +77,7 @@ export async function GET(
   // 3. Fetch the object from R2 (version-pinned, immutable).
   const rel = path.join("/");
   const key = `drawings/${drawingId}/v${version}/p${page}/${rel}`;
-  const object = await getR2Object(key);
+  const object = await getTileObject(key);
   if (!object) {
     return new NextResponse("Tile unavailable", { status: 404 });
   }

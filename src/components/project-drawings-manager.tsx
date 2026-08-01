@@ -83,9 +83,11 @@ export function ProjectDrawingsManager({
     try {
       const result = await retryDrawingTiling(projectId, drawingId);
       if (result.error) throw new Error(result.error);
-      if (result.queued === false) {
+      if (result.processing) {
+        setWorkerWarning("Tiling completed — refreshing…");
+      } else if (result.queued === false) {
         setWorkerWarning(
-          "Tiling could not start — ensure R2_* env vars are set on Railway, then Retry.",
+          "Tiling could not start — ensure SUPABASE_SERVICE_ROLE_KEY is set on Railway.",
         );
       }
       router.refresh();

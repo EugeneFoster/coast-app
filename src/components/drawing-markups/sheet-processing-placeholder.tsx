@@ -28,13 +28,10 @@ export function SheetProcessingPlaceholder({
   if (tilingHint === "no_redis") {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-rule py-20 text-center">
-        <p className="font-display text-lg text-ink">Tiling not configured</p>
+        <p className="font-display text-lg text-ink">Preparing sheets…</p>
         <p className="mt-2 max-w-md text-sm text-graph">
-          Add <span className="font-mono">R2_ENDPOINT</span>,{" "}
-          <span className="font-mono">R2_ACCESS_KEY_ID</span>, and{" "}
-          <span className="font-mono">R2_SECRET_ACCESS_KEY</span> on Railway, then
-          redeploy. The app can tile PDFs on the web service — no separate worker
-          required once R2 is set.
+          Tiling should start automatically. Click <strong>Retry</strong> in the
+          drawings list, or wait — this view updates every few seconds.
         </p>
       </div>
     );

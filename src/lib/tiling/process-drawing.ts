@@ -4,9 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canInlineTiling } from "@/lib/tiling/can-inline";
+import { canInlineTiling } from "@/lib/tiling/tile-storage";
 import { tilingConfig } from "@/lib/tiling/config";
-import { putR2Dir, putR2File } from "@/lib/tiling/r2-upload";
+import { putTileDir, putTileFile } from "@/lib/tiling/tile-storage";
 
 const run = promisify(execFile);
 
@@ -172,7 +172,7 @@ export async function processDrawingInline({
   pdfStorageKey: string;
 }) {
   if (!canInlineTiling()) {
-    throw new Error("Inline tiling requires R2 and Supabase service role");
+    throw new Error("Inline tiling requires Supabase service role");
   }
 
   const work = await mkdtemp(path.join(os.tmpdir(), `coast-${drawingId}-`));
@@ -218,10 +218,10 @@ export async function processDrawingInline({
       const thumbKey = `${prefix}/thumb.webp`;
       const previewKey = `${prefix}/preview.webp`;
 
-      await putR2File(dziKey, `${dziBase}.dzi`);
-      await putR2Dir(`${dziBase}_files`, tilesPrefix);
-      await putR2File(thumbKey, thumbPath);
-      await putR2File(previewKey, previewPath);
+      await putTileFile(dziKey, `${dziBase}.dzi`);
+      await putTileDir(`${dziBase}_files`, tilesPrefix);
+      await putTileFile(thumbKey, thumbPath);
+      await putTileFile(previewKey, previewPath);
 
       rows.push({
         drawing_id: drawingId,

@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { processDrawingInline } from "@/lib/tiling/process-drawing";
-import { canInlineTiling } from "@/lib/tiling/can-inline";
+import { canInlineTiling } from "@/lib/tiling/tile-storage";
 
 const inFlight = new Set<string>();
 

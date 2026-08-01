@@ -373,6 +373,10 @@ insert into storage.buckets (id, name, public)
 values ('markup-photos', 'markup-photos', false)
 on conflict (id) do nothing;
 
+insert into storage.buckets (id, name, public)
+values ('drawing-tiles', 'drawing-tiles', false)
+on conflict (id) do nothing;
+
 -- Demo data: only when the project table is still empty.
 do $$
 declare
