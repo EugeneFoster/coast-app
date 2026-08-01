@@ -85,7 +85,7 @@ export function ProjectDrawingsManager({
       if (result.error) throw new Error(result.error);
       if (result.queued === false) {
         setWorkerWarning(
-          "Tiling worker is not configured (REDIS_URL). Deep zoom will be unavailable until the worker is running.",
+          "Tiling could not start — ensure R2_* env vars are set on Railway, then Retry.",
         );
       }
       router.refresh();

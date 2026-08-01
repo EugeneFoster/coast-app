@@ -8,6 +8,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTiling } from "@/lib/queue";
 import { PDF_ONLY_PREFIX } from "@/lib/drawing-status";
 import { carryForwardMarkupsAction } from "@/lib/actions/markups";
+import { scheduleInlineTiling } from "@/lib/tiling/schedule-inline";
+import { canInlineTiling } from "@/lib/tiling/can-inline";
 import type { ProjectStatus } from "@/lib/types";
 
 const GALLERY_BUCKET = "project-gallery";
@@ -20,20 +22,37 @@ async function queueDrawingTiling(
   supabase: Awaited<ReturnType<typeof createClient>>,
   drawing: { id: string; file_path: string; version?: number | null },
 ): Promise<boolean> {
+  const version = drawing.version ?? 1;
   const queued = await enqueueTiling({
     drawingId: drawing.id,
-    version: drawing.version ?? 1,
+    version,
     pdfStorageKey: drawing.file_path,
   });
-  if (!queued) {
+  if (queued) return true;
+
+  if (
+    scheduleInlineTiling({
+      drawingId: drawing.id,
+      version,
+      pdfStorageKey: drawing.file_path,
+    })
+  ) {
     await supabase
       .from("drawings")
-      .update({
-        error: `${PDF_ONLY_PREFIX} Deep zoom worker is not configured.`,
-      })
+      .update({ status: "processing", error: null })
       .eq("id", drawing.id);
+    return true;
   }
-  return queued;
+
+  const msg = canInlineTiling()
+    ? `${PDF_ONLY_PREFIX} Tiling tools unavailable on this server.`
+    : `${PDF_ONLY_PREFIX} Configure R2_* env vars (and redeploy with nixpacks.toml) or deploy the worker/ service with Redis.`;
+
+  await supabase
+    .from("drawings")
+    .update({ error: msg })
+    .eq("id", drawing.id);
+  return false;
 }
 
 // Authorize the current user for a project (admin or assigned member).

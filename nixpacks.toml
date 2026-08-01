@@ -1,0 +1,3 @@
+# Native tools for inline PDF → DZI tiling on the web service (no separate worker required).
+[phases.setup]
+aptPkgs = ["poppler-utils", "libvips-tools"]

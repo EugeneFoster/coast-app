@@ -17,6 +17,8 @@ import {
   isPdfOnlyDrawing,
   type TilingHint,
 } from "@/lib/drawing-status";
+import { scheduleInlineTiling } from "@/lib/tiling/schedule-inline";
+import { canInlineTiling } from "@/lib/tiling/can-inline";
 import type { MarkupWithThread } from "@/lib/types";
 
 type ProfileLite = {
@@ -148,15 +150,29 @@ export default async function ProjectPage({
     }
 
     if (jobState.kind === "no_redis") {
-      if (d.status === "processing" && !isPdfOnlyDrawing(d)) {
-        const pdfOnlyError = `${PDF_ONLY_PREFIX} Deep zoom worker is not configured.`;
+      if (
+        d.status === "processing" &&
+        pages.length === 0 &&
+        scheduleInlineTiling({
+          drawingId: d.id,
+          version,
+          pdfStorageKey: d.file_path,
+        })
+      ) {
+        tilingHints.set(d.id, "worker_active");
+      } else if (d.status === "processing" && !isPdfOnlyDrawing(d)) {
+        const pdfOnlyError = canInlineTiling()
+          ? `${PDF_ONLY_PREFIX} Tiling could not start on this server.`
+          : `${PDF_ONLY_PREFIX} Configure R2_* env vars or deploy worker/ with Redis.`;
         await adminClient
           .from("drawings")
           .update({ error: pdfOnlyError })
           .eq("id", d.id);
         d.error = pdfOnlyError;
+        tilingHints.set(d.id, "no_redis");
+      } else {
+        tilingHints.set(d.id, "no_redis");
       }
-      tilingHints.set(d.id, "no_redis");
       continue;
     }
 

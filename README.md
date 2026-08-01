@@ -68,28 +68,21 @@ Add these under the service's **Variables** tab:
 | `SUPABASE_DB_PASSWORD` | Postgres password (auto schema/migrations) |
 | `ADMIN_LOGIN` / `ADMIN_PASSWORD` | Seed owner account |
 | `DRAW_LOGIN` / `DRAW_PASSWORD` | Seed draftsperson account |
-| `REDIS_URL` | Redis connection (Railway Redis plugin) — required for drawing tiles |
-| `QUEUE_NAME` | `tile` (optional, must match worker) |
-| `R2_ENDPOINT` | Cloudflare R2 endpoint (drawing tile storage) |
-| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 credentials |
+| `REDIS_URL` | Redis connection (optional — inline tiling runs on web service when unset) |
+| `QUEUE_NAME` | `tile` (optional, for separate worker service) |
+| `R2_ENDPOINT` | **Required for drawings** — Cloudflare R2 endpoint |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | **Required for drawings** |
 | `R2_BUCKET` | `coast-tiles` (optional) |
 
 Configured accounts (`ADMIN_*`, `DRAW_*`) are created/synced automatically on first sign-in.
 
-### Drawing tiles worker (second Railway service)
+### Drawing tiles
 
-Drawings need a **separate worker service** to turn PDFs into deep-zoom tiles. Without it, uploads stay on “Worker not configured”.
+**Default (no Redis):** the web service tiles PDFs inline using `poppler-utils` + `libvips`
+(install via root `nixpacks.toml`). You only need the `R2_*` variables above.
 
-1. In the same Railway project: **+ New** → **GitHub Repo** → this repo.
-2. **Settings** → **Root Directory** = `worker` (uses `worker/Dockerfile`).
-3. Add the **same** `REDIS_URL` as the web service, plus:
-   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-   - `R2_*` (same as web)
-   - `QUEUE_NAME=tile` (optional)
-4. Deploy. Logs should show: `[tile] worker ready on queue "tile"`.
-5. In the app, open a project → **Drawings** → **Retry** on any stuck PDF.
-
-Add Redis once for the whole project: **+ New** → **Database** → **Redis**, then reference its `REDIS_URL` on both services.
+**Optional worker:** for heavy load, add Redis + a second service with root directory
+`worker/` (see `worker/README.md`). Jobs enqueue to Redis when `REDIS_URL` is set.
 
 ## Auth
 
