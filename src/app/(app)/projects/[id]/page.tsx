@@ -10,12 +10,17 @@ import { ProjectKebab } from "@/components/project-kebab";
 import { ProjectTabs } from "@/components/project-tabs";
 import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
 import { resolveCoverUrl } from "@/lib/covers";
-import { fetchDrawingMarkups } from "@/lib/actions/markups";
 import { isPdfOnlyDrawing, type TilingHint } from "@/lib/drawing-status";
-import type { MarkupWithThread } from "@/lib/types";
+
+type GalleryRow = {
+  id: string;
+  file_path: string;
+  media_type: string;
+  profiles: { full_name: string | null; login: string } | { full_name: string | null; login: string }[] | null;
+};
 
 type ProfileLite = {
-  id: string;
+  id?: string;
   full_name: string | null;
   login: string;
   role?: string;
@@ -68,11 +73,21 @@ export default async function ProjectPage({
 
   // Gallery is read with the service role (access already gated by the project
   // fetch above), so no per-table read policy is required.
-  const { data: galleryRows } = await adminClient
-    .from("gallery_items")
-    .select("id, file_path, media_type, profiles:uploaded_by(full_name, login)")
-    .eq("project_id", id)
-    .order("created_at", { ascending: false });
+  let galleryRows: GalleryRow[] | null = null;
+  try {
+    const { data, error: galleryError } = await adminClient
+      .from("gallery_items")
+      .select("id, file_path, media_type, profiles:uploaded_by(full_name, login)")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false });
+    if (galleryError) {
+      console.error("[project-page] gallery_items", galleryError.message);
+    } else {
+      galleryRows = data;
+    }
+  } catch (error) {
+    console.error("[project-page] gallery_items", error);
+  }
 
   const coverUrl = resolveCoverUrl(project.cover_url);
 
@@ -103,20 +118,28 @@ export default async function ProjectPage({
     { pageNo: number; width: number; height: number }[]
   >();
   if (drawingRows.length > 0) {
-    const { data: pageRows } = await adminClient
-      .from("drawing_pages")
-      .select("drawing_id, page_no, width, height")
-      .in(
-        "drawing_id",
-        drawingRows.map((d) => d.id),
-      )
-      .order("page_no");
-    pagesByDrawing = (pageRows ?? []).reduce((map, r) => {
-      const list = map.get(r.drawing_id) ?? [];
-      list.push({ pageNo: r.page_no, width: r.width, height: r.height });
-      map.set(r.drawing_id, list);
-      return map;
-    }, new Map<string, { pageNo: number; width: number; height: number }[]>());
+    try {
+      const { data: pageRows, error: pagesError } = await adminClient
+        .from("drawing_pages")
+        .select("drawing_id, page_no, width, height")
+        .in(
+          "drawing_id",
+          drawingRows.map((d) => d.id),
+        )
+        .order("page_no");
+      if (pagesError) {
+        console.error("[project-page] drawing_pages", pagesError.message);
+      } else {
+        pagesByDrawing = (pageRows ?? []).reduce((map, r) => {
+          const list = map.get(r.drawing_id) ?? [];
+          list.push({ pageNo: r.page_no, width: r.width, height: r.height });
+          map.set(r.drawing_id, list);
+          return map;
+        }, new Map<string, { pageNo: number; width: number; height: number }[]>());
+      }
+    } catch (error) {
+      console.error("[project-page] drawing_pages", error);
+    }
   }
 
   function tilingHintFor(d: DrawingRow): TilingHint {
@@ -138,16 +161,6 @@ export default async function ProjectPage({
     tilingError: d.error,
   }));
 
-  const markupsByDrawing: Record<string, MarkupWithThread[]> = {};
-  for (const d of drawingRows) {
-    const version = d.version ?? 1;
-    try {
-      markupsByDrawing[d.id] = await fetchDrawingMarkups(d.id, version);
-    } catch {
-      markupsByDrawing[d.id] = [];
-    }
-  }
-
   // Gallery (private bucket → signed URLs)
   let gallery: {
     id: string;
@@ -156,20 +169,32 @@ export default async function ProjectPage({
     author: string;
   }[] = [];
   if (galleryRows && galleryRows.length > 0) {
-    const { data: signed } = await adminClient.storage
-      .from("project-gallery")
-      .createSignedUrls(
-        galleryRows.map((g) => g.file_path),
-        3600,
-      );
-    gallery = (galleryRows ?? []).flatMap((g, i) => {
-      const url = signed?.[i]?.signedUrl;
-      if (!url) return [];
-      const raw = g.profiles as ProfileLite | ProfileLite[] | null;
-      const author = authorName(Array.isArray(raw) ? raw[0] : raw);
-      return [{ id: g.id, url, type: g.media_type as "photo" | "video", author }];
-    });
+    try {
+      const { data: signed, error: signError } = await adminClient.storage
+        .from("project-gallery")
+        .createSignedUrls(
+          galleryRows.map((g) => g.file_path),
+          3600,
+        );
+      if (signError) {
+        console.error("[project-page] gallery signed urls", signError.message);
+      } else {
+        gallery = (galleryRows ?? []).flatMap((g, i) => {
+          const url = signed?.[i]?.signedUrl;
+          if (!url) return [];
+          const raw = g.profiles;
+          const author = authorName(Array.isArray(raw) ? raw[0] : raw);
+          return [{ id: g.id, url, type: g.media_type as "photo" | "video", author }];
+        });
+      }
+    } catch (error) {
+      console.error("[project-page] gallery", error);
+    }
   }
+
+  const client = Array.isArray(project.clients)
+    ? project.clients[0]
+    : project.clients;
 
   const weldersSlot = admin ? (
     <section className="border-t border-rule pt-6">
@@ -248,7 +273,7 @@ export default async function ProjectPage({
               {project.name}
             </h1>
           )}
-          <p className="mt-2 text-graph">{project.clients?.name ?? "No client"}</p>
+          <p className="mt-2 text-graph">{client?.name ?? "No client"}</p>
         </div>
         {admin && <ProjectKebab projectId={id} />}
       </div>
@@ -276,7 +301,6 @@ export default async function ProjectPage({
         canUpload={admin || assignedIds.has(profile.id)}
         weldersSlot={weldersSlot}
         isAdminUser={admin}
-        markupsByDrawing={markupsByDrawing}
       />
     </div>
   );

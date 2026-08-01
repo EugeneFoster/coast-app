@@ -11,6 +11,7 @@ import {
   updateMarkupStatusAction,
   registerMarkupPhoto,
   requestMarkupPhotoUpload,
+  fetchDrawingMarkups,
 } from "@/lib/actions/markups";
 import {
   enqueueMarkupOp,
@@ -39,6 +40,21 @@ export function useDrawingMarkups({
   useEffect(() => {
     setMarkups(initial);
   }, [initial]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const loaded = await fetchDrawingMarkups(drawingId, version);
+        if (!cancelled) setMarkups(loaded);
+      } catch (error) {
+        console.error("[markups-load]", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [drawingId, version]);
 
   useEffect(() => {
     return onConnectivityChange(setOnline);

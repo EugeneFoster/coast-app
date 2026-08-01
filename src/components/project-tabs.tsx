@@ -1,16 +1,29 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ModelPreview } from "@/components/model-preview";
-import { DrawingsViewer, type DrawingFile } from "@/components/drawings-viewer";
-import type { MarkupWithThread } from "@/lib/types";
+import type { DrawingFile } from "@/components/drawings-viewer";
 import { CoverImage } from "@/components/cover-image";
 import { ProjectDescriptionEditor } from "@/components/project-description-editor";
 import { ProjectDrawingsManager } from "@/components/project-drawings-manager";
 import { DrawingTilingBoot } from "@/components/drawing-tiling-boot";
 import { addGalleryItem, requestGalleryUpload } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
+
+const DrawingsViewer = dynamic(
+  () =>
+    import("@/components/drawings-viewer").then((m) => ({
+      default: m.DrawingsViewer,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="text-sm text-graph">Loading drawing viewer…</p>
+    ),
+  },
+);
 
 type Media = {
   id: string;
@@ -50,7 +63,6 @@ export function ProjectTabs({
   canUpload,
   weldersSlot,
   isAdminUser,
-  markupsByDrawing,
 }: {
   projectId: string;
   name: string;
@@ -63,7 +75,6 @@ export function ProjectTabs({
   canUpload: boolean;
   weldersSlot?: ReactNode;
   isAdminUser: boolean;
-  markupsByDrawing: Record<string, MarkupWithThread[]>;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
 
@@ -110,7 +121,6 @@ export function ProjectTabs({
               files={drawings}
               projectId={projectId}
               isAdminUser={isAdminUser}
-              initialMarkupsByDrawing={markupsByDrawing}
             />
           ) : !isAdminUser ? (
             <p className="text-sm text-graph">No drawings uploaded.</p>

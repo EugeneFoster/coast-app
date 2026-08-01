@@ -80,12 +80,10 @@ export function DrawingsViewer({
   files,
   projectId,
   isAdminUser,
-  initialMarkupsByDrawing,
 }: {
   files: DrawingFile[];
   projectId: string;
   isAdminUser: boolean;
-  initialMarkupsByDrawing: Record<string, MarkupWithThread[]>;
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -136,7 +134,7 @@ export function DrawingsViewer({
         file={active}
         projectId={projectId}
         isAdminUser={isAdminUser}
-        initialMarkups={initialMarkupsByDrawing[active.id] ?? []}
+        initialMarkups={[]}
       />
     </div>
   );
