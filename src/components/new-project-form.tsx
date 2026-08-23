@@ -6,6 +6,7 @@ import { createProjectAction } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
 
 type TeamOption = { id: string; full_name: string | null; login: string };
+type CustomerOption = { id: string; name: string };
 
 const MAX_COVER = 10 * 1024 * 1024;
 const MAX_MODEL = 80 * 1024 * 1024;
@@ -24,10 +25,17 @@ function ext(name: string) {
   return m ? m[0].toLowerCase() : "";
 }
 
-export function NewProjectForm({ team }: { team: TeamOption[] }) {
+export function NewProjectForm({
+  team,
+  customers,
+}: {
+  team: TeamOption[];
+  customers: CustomerOption[];
+}) {
   const supabase = useMemo(() => createClient(), []);
 
   const [name, setName] = useState("");
+  const [clientId, setClientId] = useState("");
   const [description, setDescription] = useState("");
 
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -128,6 +136,7 @@ export function NewProjectForm({ team }: { team: TeamOption[] }) {
       const result = await createProjectAction({
         projectId,
         name: name.trim(),
+        clientId: clientId || null,
         description: description.trim() || null,
         coverPath,
         modelPath,
@@ -174,6 +183,26 @@ export function NewProjectForm({ team }: { team: TeamOption[] }) {
           placeholder="Dock · Roberts Creek"
           className={inputClass}
         />
+      </div>
+
+      <div>
+        <label htmlFor="client" className={labelClass}>
+          Customer
+        </label>
+        <select
+          id="client"
+          value={clientId}
+          onChange={(event) => setClientId(event.target.value)}
+          disabled={pending}
+          className={inputClass}
+        >
+          <option value="">No customer selected</option>
+          {customers.map((customer) => (
+            <option key={customer.id} value={customer.id}>
+              {customer.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>

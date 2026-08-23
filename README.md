@@ -133,3 +133,31 @@ Employees are invited from **Settings → Employees**, where administrators assi
 roles, job titles, phone numbers, trade specialties, and account status. RLS and a
 database trigger enforce access and prevent employees from promoting their own
 accounts.
+
+## Sales CRM
+
+The **Sales CRM** navigation is available to owners, project managers,
+salespeople, CAD designers, and accounting. Accounting has read-only access;
+the other sales roles can manage the workflow:
+
+```text
+Lead → Qualified → Estimating → Quoted → Won / Lost
+```
+
+Each opportunity belongs to a customer and records requested services, vessel
+details, target date, expected value, and responsible salesperson. Estimates use
+server-calculated line totals, discounts, and tax. An accepted estimate can be
+converted once into a linked project using a transactional database function.
+Quotes can be printed or saved as PDF from the estimate page.
+
+Customer names remain available for project work, while contact names, phones,
+emails, addresses, and notes live in a separate RLS-protected table. Accounting
+can read those details; shop-floor roles cannot.
+
+Validate the P2 migrations, contact privacy, quote calculations, read-only
+accounting access, and quote-to-project conversion inside a rolled-back
+transaction:
+
+```bash
+railway run -- npm run db:check-sales-migration
+```

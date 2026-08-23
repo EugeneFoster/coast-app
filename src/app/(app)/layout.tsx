@@ -13,7 +13,7 @@ export default async function AppLayout({
     <div className="flex min-h-screen">
       <Sidebar profile={profile} isAdminUser={isAdmin(profile)} />
       <div className="flex min-w-0 flex-1 flex-col bg-bone">
-        <header className="flex items-center justify-end px-6 py-3">
+        <header className="print-hidden flex items-center justify-end px-6 py-3">
           <ThemeToggle />
         </header>
         <main className="flex-1">{children}</main>

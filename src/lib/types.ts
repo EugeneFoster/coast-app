@@ -43,6 +43,117 @@ export interface Profile {
 export interface Client {
   id: string;
   name: string;
+  type: ClientType;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientContact {
+  client_id: string;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  billing_address: string | null;
+  service_address: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ClientType = "individual" | "business";
+export type OpportunityStatus =
+  | "new"
+  | "qualified"
+  | "estimating"
+  | "quoted"
+  | "won"
+  | "lost";
+export type LeadSource =
+  | "website"
+  | "referral"
+  | "phone"
+  | "email"
+  | "walk_in"
+  | "repeat"
+  | "other";
+export type ServiceCategory =
+  | "boat_repair"
+  | "marine_fabrication"
+  | "dock_wharf"
+  | "boat_painting"
+  | "marine_mechanics"
+  | "parts"
+  | "cad_design"
+  | "haul_transport"
+  | "other";
+export type EstimateStatus =
+  | "draft"
+  | "sent"
+  | "accepted"
+  | "declined"
+  | "expired";
+export type EstimateItemType =
+  | "labor"
+  | "material"
+  | "part"
+  | "subcontract"
+  | "other";
+
+export interface Opportunity {
+  id: string;
+  client_id: string;
+  title: string;
+  status: OpportunityStatus;
+  source: LeadSource;
+  description: string | null;
+  service_categories: ServiceCategory[];
+  vessel_name: string | null;
+  vessel_make_model: string | null;
+  vessel_length_ft: number | null;
+  estimated_value: number | null;
+  target_date: string | null;
+  assigned_to: string | null;
+  lost_reason: string | null;
+  project_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Estimate {
+  id: string;
+  estimate_number: string;
+  opportunity_id: string;
+  client_id: string;
+  status: EstimateStatus;
+  title: string;
+  scope: string | null;
+  valid_until: string | null;
+  notes: string | null;
+  terms: string | null;
+  tax_rate_percent: number;
+  discount_amount: number;
+  subtotal: number;
+  tax_amount: number;
+  total: number;
+  assigned_to: string | null;
+  accepted_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EstimateItem {
+  id: string;
+  estimate_id: string;
+  item_type: EstimateItemType;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  line_total: number;
+  sort_order: number;
   created_at: string;
 }
 

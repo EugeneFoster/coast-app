@@ -2,15 +2,19 @@ import { connectToSupabaseDatabase } from "./lib/supabase-db.mjs";
 
 const expectedTables = [
   "clients",
+  "client_contacts",
   "drawing_markups",
   "drawing_pages",
   "drawings",
+  "estimate_items",
+  "estimates",
   "gallery_items",
   "markup_comments",
   "markup_photos",
   "profiles",
   "project_members",
   "projects",
+  "opportunities",
 ];
 
 const expectedBuckets = [
@@ -24,6 +28,25 @@ const expectedBuckets = [
 ];
 
 const expectedProfileColumns = ["phone", "job_title", "specialties"];
+const expectedClientColumns = [
+  "type",
+  "created_by",
+  "updated_at",
+];
+const sensitiveClientColumns = [
+  "contact_name",
+  "email",
+  "phone",
+  "billing_address",
+  "service_address",
+  "notes",
+];
+const expectedClientContactColumns = [
+  "client_id",
+  ...sensitiveClientColumns,
+  "created_at",
+  "updated_at",
+];
 const expectedRoles = [
   "owner",
   "project_manager",
@@ -61,6 +84,22 @@ try {
     where schemaname in ('public', 'storage')
     order by schemaname, tablename, policyname
   `);
+  const policyKeys = policyRows.map(
+    ({ schemaname, tablename, policyname }) =>
+      `${schemaname}.${tablename}.${policyname}`,
+  );
+  const clientContactPolicies = [
+    "public.client_contacts.client_contacts_manage",
+    "public.client_contacts.client_contacts_accounting_read",
+  ].every((policy) => policyKeys.includes(policy));
+
+  const { rows: clientContactSecurityRows } = await client.query(`
+    select relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'client_contacts'
+  `);
+  const clientContactRls = clientContactSecurityRows[0]?.relrowsecurity === true;
 
   const { rows: profileColumnRows } = await client.query(`
     select column_name
@@ -68,6 +107,22 @@ try {
     where table_schema = 'public' and table_name = 'profiles'
   `);
   const profileColumns = profileColumnRows.map(({ column_name }) => column_name);
+
+  const { rows: clientColumnRows } = await client.query(`
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'clients'
+  `);
+  const clientColumns = clientColumnRows.map(({ column_name }) => column_name);
+
+  const { rows: clientContactColumnRows } = await client.query(`
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'client_contacts'
+  `);
+  const clientContactColumns = clientContactColumnRows.map(
+    ({ column_name }) => column_name,
+  );
 
   const { rows: roleRows } = await client.query(`
     select e.enumlabel
@@ -95,6 +150,20 @@ try {
       and p.proname in ('is_active_user', 'is_admin', 'protect_profile_security_fields')
   `);
 
+  const { rows: salesFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'can_manage_sales',
+        'can_view_sales',
+        'calculate_estimate_totals',
+        'recalculate_estimate_subtotal',
+        'convert_opportunity_to_project'
+      )
+  `);
+
   const { rows: mismatchRows } = await client.query(`
     select count(*)::integer as count
     from public.projects p
@@ -103,6 +172,18 @@ try {
       from public.drawings d
       where d.project_id = p.id
     )
+  `);
+
+  const { rows: customerIntegrityRows } = await client.query(`
+    select
+      (select count(*)::integer from public.clients) as clients,
+      (select count(*)::integer from public.client_contacts) as contacts,
+      (
+        select count(*)::integer
+        from public.clients c
+        left join public.client_contacts cc on cc.client_id = c.id
+        where cc.client_id is null
+      ) as missing_contacts
   `);
 
   const { rows: migrationTableRows } = await client.query(`
@@ -121,6 +202,15 @@ try {
   const missingProfileColumns = expectedProfileColumns.filter(
     (name) => !profileColumns.includes(name),
   );
+  const missingClientColumns = expectedClientColumns.filter(
+    (name) => !clientColumns.includes(name),
+  );
+  const exposedClientContactColumns = sensitiveClientColumns.filter((name) =>
+    clientColumns.includes(name),
+  );
+  const missingClientContactColumns = expectedClientContactColumns.filter(
+    (name) => !clientContactColumns.includes(name),
+  );
   const missingRoles = expectedRoles.filter((name) => !roles.includes(name));
   const triggerEvents = triggerRows.map(({ event_manipulation }) => event_manipulation);
   const profileSecurityTrigger = ["INSERT", "UPDATE", "DELETE"].every((event) =>
@@ -132,14 +222,34 @@ try {
     "is_admin",
     "protect_profile_security_fields",
   ].every((name) => accessFunctions.includes(name));
+  const salesFunctions = salesFunctionRows.map(({ proname }) => proname);
+  const salesWorkflowFunctions = [
+    "can_manage_sales",
+    "can_view_sales",
+    "calculate_estimate_totals",
+    "recalculate_estimate_subtotal",
+    "convert_opportunity_to_project",
+  ].every((name) => salesFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
+  const customerIntegrity = customerIntegrityRows[0] ?? {
+    clients: 0,
+    contacts: 0,
+    missing_contacts: 0,
+  };
   const ok =
     missingTables.length === 0 &&
     missingBuckets.length === 0 &&
     missingProfileColumns.length === 0 &&
+    missingClientColumns.length === 0 &&
+    exposedClientContactColumns.length === 0 &&
+    missingClientContactColumns.length === 0 &&
+    clientContactPolicies &&
+    clientContactRls &&
     missingRoles.length === 0 &&
     profileSecurityTrigger &&
     employeeAccessFunctions &&
+    salesWorkflowFunctions &&
+    customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
   console.log(JSON.stringify({
@@ -152,6 +262,15 @@ try {
       missingRoles,
       profileSecurityTrigger,
       employeeAccessFunctions,
+    },
+    sales: {
+      missingClientColumns,
+      exposedClientContactColumns,
+      missingClientContactColumns,
+      clientContactPolicies,
+      clientContactRls,
+      salesWorkflowFunctions,
+      customerIntegrity,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,

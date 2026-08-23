@@ -91,6 +91,7 @@ async function assertProjectAccess(projectId: string): Promise<string> {
 export type NewProjectInput = {
   projectId: string;
   name: string;
+  clientId?: string | null;
   description?: string | null;
   coverPath?: string | null;
   modelPath?: string | null;
@@ -119,6 +120,10 @@ export async function createProjectAction(
 
   const name = (input.name ?? "").trim();
   if (!name) return { error: "Project name is required." };
+  const clientId = input.clientId?.trim() || null;
+  if (clientId && !UUID_RE.test(clientId)) {
+    return { error: "Invalid customer reference." };
+  }
 
   if (input.coverPath && !IMAGE_RE.test(input.coverPath)) {
     return { error: "Cover must be an image file." };
@@ -134,6 +139,7 @@ export async function createProjectAction(
   const projectRow: Record<string, unknown> = {
     id: projectId,
     name,
+    client_id: clientId,
     description: input.description?.trim() || null,
     status: "planned",
     cover_url: input.coverPath ?? null,
