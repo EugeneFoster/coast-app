@@ -13,6 +13,7 @@ const navItems: Array<{
   salesOnly?: boolean;
 }> = [
   { href: "/projects", label: "Projects" },
+  { href: "/work-orders", label: "Work orders" },
   { href: "/sales", label: "Sales CRM", salesOnly: true },
   { href: "/chat", label: "Chat" },
   { href: "/library", label: "Library" },

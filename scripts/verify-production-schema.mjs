@@ -9,12 +9,16 @@ const expectedTables = [
   "estimate_items",
   "estimates",
   "gallery_items",
+  "material_entries",
   "markup_comments",
   "markup_photos",
   "profiles",
   "project_members",
   "projects",
   "opportunities",
+  "time_entries",
+  "work_order_assignments",
+  "work_orders",
 ];
 
 const expectedBuckets = [
@@ -100,6 +104,41 @@ try {
     where n.nspname = 'public' and c.relname = 'client_contacts'
   `);
   const clientContactRls = clientContactSecurityRows[0]?.relrowsecurity === true;
+  const operationsPolicyNames = [
+    "public.work_orders.work_orders_read",
+    "public.work_orders.work_orders_manage",
+    "public.work_order_assignments.work_order_assignments_read",
+    "public.work_order_assignments.work_order_assignments_manage",
+    "public.time_entries.time_entries_read",
+    "public.time_entries.time_entries_manage",
+    "public.time_entries.time_entries_self_insert",
+    "public.time_entries.time_entries_self_update",
+    "public.time_entries.time_entries_self_delete",
+    "public.material_entries.material_entries_read",
+    "public.material_entries.material_entries_manage",
+    "public.material_entries.material_entries_self_insert",
+    "public.material_entries.material_entries_self_update",
+    "public.material_entries.material_entries_self_delete",
+  ];
+  const operationsPolicies = operationsPolicyNames.every((policy) =>
+    policyKeys.includes(policy),
+  );
+  const projectAccountingPolicyAbsent = !policyKeys.includes(
+    "public.projects.projects_operations_accounting_read",
+  );
+
+  const { rows: operationsSecurityRows } = await client.query(`
+    select relname, relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in (
+        'work_orders', 'work_order_assignments', 'time_entries', 'material_entries'
+      )
+  `);
+  const operationsRls =
+    operationsSecurityRows.length === 4 &&
+    operationsSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
 
   const { rows: profileColumnRows } = await client.query(`
     select column_name
@@ -164,6 +203,23 @@ try {
       )
   `);
 
+  const { rows: operationsFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'can_manage_operations',
+        'can_view_work_order',
+        'can_log_work_order',
+        'operations_employee_directory',
+        'operations_project_directory',
+        'update_assigned_work_order_status',
+        'enforce_work_order_status_transition',
+        'validate_time_entry'
+      )
+  `);
+
   const { rows: mismatchRows } = await client.query(`
     select count(*)::integer as count
     from public.projects p
@@ -184,6 +240,41 @@ try {
         left join public.client_contacts cc on cc.client_id = c.id
         where cc.client_id is null
       ) as missing_contacts
+  `);
+
+  const { rows: operationsIntegrityRows } = await client.query(`
+    select
+      (select count(*)::integer from public.work_orders) as work_orders,
+      (select count(*)::integer from public.work_order_assignments) as assignments,
+      (select count(*)::integer from public.time_entries) as time_entries,
+      (select count(*)::integer from public.material_entries) as material_entries,
+      (
+        select count(*)::integer
+        from public.work_order_assignments a
+        join public.work_orders w on w.id = a.work_order_id
+        left join public.project_members m
+          on m.project_id = w.project_id and m.profile_id = a.profile_id
+        where m.profile_id is null
+      ) as missing_project_members,
+      (
+        select count(*)::integer
+        from (
+          select profile_id, work_date
+          from public.time_entries
+          group by profile_id, work_date
+          having sum(hours) > 24
+        ) invalid_days
+      ) as invalid_time_days,
+      (
+        select count(*)::integer
+        from public.work_order_assignments a
+        join public.profiles p on p.id = a.profile_id
+        where p.status::text <> 'active'
+          or p.role::text not in (
+            'owner', 'project_manager', 'draftsperson', 'welder', 'painter',
+            'mechanic', 'installer', 'parts'
+          )
+      ) as invalid_assignments
   `);
 
   const { rows: migrationTableRows } = await client.query(`
@@ -230,11 +321,31 @@ try {
     "recalculate_estimate_subtotal",
     "convert_opportunity_to_project",
   ].every((name) => salesFunctions.includes(name));
+  const operationsFunctions = operationsFunctionRows.map(({ proname }) => proname);
+  const operationsWorkflowFunctions = [
+    "can_manage_operations",
+    "can_view_work_order",
+    "can_log_work_order",
+    "operations_employee_directory",
+    "operations_project_directory",
+    "update_assigned_work_order_status",
+    "enforce_work_order_status_transition",
+    "validate_time_entry",
+  ].every((name) => operationsFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
     clients: 0,
     contacts: 0,
     missing_contacts: 0,
+  };
+  const operationsIntegrity = operationsIntegrityRows[0] ?? {
+    work_orders: 0,
+    assignments: 0,
+    time_entries: 0,
+    material_entries: 0,
+    missing_project_members: 0,
+    invalid_time_days: 0,
+    invalid_assignments: 0,
   };
   const ok =
     missingTables.length === 0 &&
@@ -249,6 +360,13 @@ try {
     profileSecurityTrigger &&
     employeeAccessFunctions &&
     salesWorkflowFunctions &&
+    operationsPolicies &&
+    operationsRls &&
+    projectAccountingPolicyAbsent &&
+    operationsWorkflowFunctions &&
+    operationsIntegrity.missing_project_members === 0 &&
+    operationsIntegrity.invalid_time_days === 0 &&
+    operationsIntegrity.invalid_assignments === 0 &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -271,6 +389,13 @@ try {
       clientContactRls,
       salesWorkflowFunctions,
       customerIntegrity,
+    },
+    operations: {
+      operationsPolicies,
+      operationsRls,
+      projectAccountingPolicyAbsent,
+      operationsWorkflowFunctions,
+      operationsIntegrity,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,

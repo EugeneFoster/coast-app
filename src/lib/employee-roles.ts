@@ -44,6 +44,17 @@ export const ASSIGNABLE_PROJECT_ROLES: UserRole[] = [
   "accounting",
 ];
 
+export const ASSIGNABLE_WORK_ORDER_ROLES: UserRole[] = [
+  "owner",
+  "project_manager",
+  "draftsperson",
+  "welder",
+  "painter",
+  "mechanic",
+  "installer",
+  "parts",
+];
+
 const roleValues = new Set<UserRole>(USER_ROLES.map(({ value }) => value));
 const specialtyValues = new Set<EmployeeSpecialty>(
   EMPLOYEE_SPECIALTIES.map(({ value }) => value),
@@ -89,4 +100,8 @@ export function canManageSales(role: UserRole) {
 
 export function canViewSales(role: UserRole) {
   return canManageSales(role) || role === "accounting";
+}
+
+export function canManageOperations(role: UserRole) {
+  return canManageProjects(role);
 }

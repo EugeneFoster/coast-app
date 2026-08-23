@@ -157,6 +157,68 @@ export interface EstimateItem {
   created_at: string;
 }
 
+export type WorkOrderStatus =
+  | "planned"
+  | "ready"
+  | "in_progress"
+  | "blocked"
+  | "completed"
+  | "cancelled";
+export type WorkOrderPriority = "low" | "normal" | "high" | "urgent";
+
+export interface WorkOrder {
+  id: string;
+  work_order_number: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  service_category: ServiceCategory;
+  status: WorkOrderStatus;
+  priority: WorkOrderPriority;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  estimated_hours: number | null;
+  location: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkOrderAssignment {
+  work_order_id: string;
+  profile_id: string;
+  assigned_by: string | null;
+  created_at: string;
+}
+
+export interface TimeEntry {
+  id: string;
+  work_order_id: string;
+  profile_id: string;
+  work_date: string;
+  hours: number;
+  note: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialEntry {
+  id: string;
+  work_order_id: string;
+  description: string;
+  part_number: string | null;
+  quantity: number;
+  unit: string;
+  unit_cost: number;
+  line_total: number;
+  entered_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export type StructureType = "dock" | "wharf" | "pontoon" | "ramp" | "other";
 
 export interface Project {

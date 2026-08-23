@@ -12,6 +12,7 @@
     "db:check-migration": "node scripts/check-migration.mjs",
     "db:check-employee-security": "node scripts/check-employee-security.mjs",
     "db:check-sales-migration": "node scripts/check-sales-migration.mjs",
+    "db:check-operations-migration": "node scripts/check-operations-migration.mjs",
     "db:verify": "node scripts/verify-production-schema.mjs"
   },
   "dependencies": {
