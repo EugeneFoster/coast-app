@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import {
+  canManageOperations,
   canManageProjects,
   canManageSales,
   canViewSales,
@@ -92,5 +93,11 @@ export async function requireSalesViewer() {
 export async function requireSalesManager() {
   const { user, profile } = await requireUser();
   if (!canManageSales(profile.role)) redirect("/projects");
+  return { user, profile };
+}
+
+export async function requireOperationsManager() {
+  const { user, profile } = await requireUser();
+  if (!canManageOperations(profile.role)) redirect("/work-orders");
   return { user, profile };
 }

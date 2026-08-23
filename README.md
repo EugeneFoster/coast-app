@@ -161,3 +161,23 @@ transaction:
 ```bash
 railway run -- npm run db:check-sales-migration
 ```
+
+## Operations / work orders
+
+Every project can contain scheduled work orders for fabrication, painting,
+mechanical, dock installation, CAD, parts, transport, or general marine work.
+Operations managers set scope, priority, dates, estimated hours, location, and
+crew. Assigning an employee also grants that employee project access.
+
+Assigned employees can move their work through Ready, In progress, Blocked, and
+Completed, log their own labor, and record materials or parts used. Protected
+work-order fields remain manager-only. Accounting can read operational totals
+but cannot change status, labor, or material records.
+
+Validate the P3 migration, status rules, assignment access, labor limits,
+material totals, and accounting read-only access inside a rolled-back
+transaction:
+
+```bash
+railway run -- npm run db:check-operations-migration
+```

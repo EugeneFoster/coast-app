@@ -279,7 +279,15 @@ export default async function ProjectPage({
           )}
           <p className="mt-2 text-graph">{client?.name ?? "No client"}</p>
         </div>
-        {admin && <ProjectKebab projectId={id} />}
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/projects/${id}/work-orders`}
+            className="btn-secondary px-4 py-2 text-sm"
+          >
+            Work orders
+          </Link>
+          {admin && <ProjectKebab projectId={id} />}
+        </div>
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-4">
