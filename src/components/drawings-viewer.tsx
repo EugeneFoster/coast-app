@@ -171,6 +171,12 @@ function SheetViewer({
   const viewerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const osdRef = useRef<any>(null);
+  // OpenSeadragon's mutable instances live in refs; state only signals that the
+  // overlay can render after async initialization completes.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [overlayViewer, setOverlayViewer] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [overlayOsd, setOverlayOsd] = useState<any>(null);
 
   const [pageIdx, setPageIdx] = useState(0);
   const [zoomPct, setZoomPct] = useState(100);
@@ -271,9 +277,10 @@ function SheetViewer({
       const OpenSeadragon = (await import("openseadragon")).default;
       if (disposed || !containerRef.current) return;
       osdRef.current = OpenSeadragon;
+      setOverlayOsd(() => OpenSeadragon);
 
       if (!viewerRef.current) {
-        viewerRef.current = OpenSeadragon({
+        const viewer = OpenSeadragon({
           element: containerRef.current,
           showNavigationControl: false,
           showNavigator: false,
@@ -283,15 +290,17 @@ function SheetViewer({
           maxZoomPixelRatio: 4,
           gestureSettingsTouch: { pinchToZoom: true, flickEnabled: true },
         });
-        viewerRef.current.addHandler("zoom", () => {
+        viewerRef.current = viewer;
+        setOverlayViewer(viewer);
+        viewer.addHandler("zoom", () => {
           const vp = viewerRef.current?.viewport;
           if (!vp) return;
           const home = vp.getHomeZoom() || 1;
           setZoomPct(Math.round((vp.getZoom() / home) * 100));
           repositionMarkups();
         });
-        viewerRef.current.addHandler("animation", repositionMarkups);
-        viewerRef.current.addHandler("open", repositionMarkups);
+        viewer.addHandler("animation", repositionMarkups);
+        viewer.addHandler("open", repositionMarkups);
       }
 
       viewerRef.current.open(`${tileBase(file, page.pageNo)}/page.dzi`);
@@ -603,8 +612,8 @@ function SheetViewer({
           selectedId={selectedId}
           pageWidth={page.width}
           pageHeight={page.height}
-          viewer={viewerRef.current}
-          osd={osdRef.current}
+          viewer={overlayViewer}
+          osd={overlayOsd}
           draftPath={draftInk}
           draftColor={inkColor}
           draftWidth={draftStrokeWidth}
