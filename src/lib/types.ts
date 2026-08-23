@@ -1,5 +1,24 @@
-export type UserRole = "owner" | "draftsperson" | "welder";
+export type UserRole =
+  | "owner"
+  | "project_manager"
+  | "sales"
+  | "draftsperson"
+  | "welder"
+  | "painter"
+  | "mechanic"
+  | "installer"
+  | "parts"
+  | "accounting";
 export type UserStatus = "invited" | "active" | "disabled";
+export type EmployeeSpecialty =
+  | "cad_design"
+  | "welding"
+  | "aluminum_fabrication"
+  | "boat_painting"
+  | "marine_mechanics"
+  | "dock_installation"
+  | "haul_transport"
+  | "parts_sales";
 export type ProjectStatus =
   | "planned"
   | "in_progress"
@@ -14,6 +33,9 @@ export interface Profile {
   role: UserRole;
   status: UserStatus;
   avatar_url: string | null;
+  phone: string | null;
+  job_title: string | null;
+  specialties: EmployeeSpecialty[];
   created_at: string;
   updated_at: string;
 }

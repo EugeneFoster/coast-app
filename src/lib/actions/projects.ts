@@ -12,6 +12,7 @@ import { canInlineTiling } from "@/lib/tiling/tile-storage";
 import { processDrawingInline } from "@/lib/tiling/process-drawing";
 import { scheduleInlineTiling } from "@/lib/tiling/schedule-inline";
 import type { ProjectStatus } from "@/lib/types";
+import { canManageProjects, isUserRole } from "@/lib/employee-roles";
 
 const GALLERY_BUCKET = "project-gallery";
 
@@ -64,11 +65,15 @@ async function assertProjectAccess(projectId: string): Promise<string> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, status")
     .eq("id", user.id)
     .single();
 
-  if (profile?.role === "owner" || profile?.role === "draftsperson") {
+  if (!profile || profile.status !== "active" || !isUserRole(profile.role)) {
+    throw new Error("Your employee account is not active.");
+  }
+
+  if (canManageProjects(profile.role)) {
     return user.id;
   }
 
@@ -90,7 +95,7 @@ export type NewProjectInput = {
   coverPath?: string | null;
   modelPath?: string | null;
   drawings?: { path: string; originalName: string }[];
-  welderIds?: string[];
+  memberIds?: string[];
 };
 
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif)$/i;
@@ -166,12 +171,12 @@ export async function createProjectAction(
     }
   }
 
-  const welderIds = (input.welderIds ?? []).filter(Boolean);
-  if (welderIds.length > 0) {
+  const memberIds = (input.memberIds ?? []).filter(Boolean);
+  if (memberIds.length > 0) {
     const { error: memberError } = await supabase
       .from("project_members")
       .insert(
-        welderIds.map((profileId) => ({
+        memberIds.map((profileId) => ({
           project_id: projectId,
           profile_id: profileId,
         })),
@@ -510,7 +515,7 @@ export async function addGalleryItem(
   return {};
 }
 
-export async function assignWelder(projectId: string, profileId: string) {
+export async function assignProjectMember(projectId: string, profileId: string) {
   await requireAdmin();
   const supabase = await createClient();
 
@@ -522,15 +527,15 @@ export async function assignWelder(projectId: string, profileId: string) {
   revalidatePath(`/projects/${projectId}`);
 }
 
-export async function assignWelderFromForm(formData: FormData) {
+export async function assignProjectMemberFromForm(formData: FormData) {
   const projectId = formData.get("project_id") as string;
-  const welderId = formData.get("welder_id") as string;
-  if (projectId && welderId) {
-    await assignWelder(projectId, welderId);
+  const memberId = formData.get("member_id") as string;
+  if (projectId && memberId) {
+    await assignProjectMember(projectId, memberId);
   }
 }
 
-export async function removeWelder(projectId: string, profileId: string) {
+export async function removeProjectMember(projectId: string, profileId: string) {
   await requireAdmin();
   const supabase = await createClient();
 

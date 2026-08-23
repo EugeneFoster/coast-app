@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/auth";
+import { canManageEmployees, userRoleLabel, userStatusLabel } from "@/lib/employee-roles";
 
 export default async function SettingsPage() {
   const { profile } = await requireUser();
@@ -17,21 +19,27 @@ export default async function SettingsPage() {
             </div>
             <div className="flex justify-between">
               <dt className="text-graph">Role</dt>
-              <dd className="text-ink">{profile.role}</dd>
+              <dd className="text-ink">{userRoleLabel(profile.role)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-graph">Status</dt>
-              <dd className="text-ink">{profile.status}</dd>
+              <dd className="text-ink">{userStatusLabel(profile.status)}</dd>
             </div>
           </dl>
         </div>
 
-        {(profile.role === "owner" || profile.role === "draftsperson") && (
+        {canManageEmployees(profile.role) && (
           <div className="rounded border border-rule bg-paper p-6">
             <h2 className="text-sm font-medium text-ink">Employees</h2>
             <p className="mt-1 text-sm text-graph">
-              Employee management is disabled in the free deployment profile.
+              Invite employees, assign roles, and record trade specialties.
             </p>
+            <Link
+              href="/settings/employees"
+              className="mt-4 inline-block text-sm font-medium text-weld hover:underline"
+            >
+              Manage employees →
+            </Link>
           </div>
         )}
       </div>

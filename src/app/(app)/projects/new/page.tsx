@@ -2,16 +2,17 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { NewProjectForm } from "@/components/new-project-form";
+import { ASSIGNABLE_PROJECT_ROLES } from "@/lib/employee-roles";
 
 export default async function NewProjectPage() {
   await requireAdmin();
 
   const supabase = await createClient();
 
-  const { data: welders } = await supabase
+  const { data: team } = await supabase
     .from("profiles")
     .select("id, full_name, login")
-    .eq("role", "welder")
+    .in("role", ASSIGNABLE_PROJECT_ROLES)
     .eq("status", "active")
     .order("full_name");
 
@@ -25,7 +26,7 @@ export default async function NewProjectPage() {
         Create project
       </h1>
 
-      <NewProjectForm welders={welders ?? []} />
+      <NewProjectForm team={team ?? []} />
     </div>
   );
 }

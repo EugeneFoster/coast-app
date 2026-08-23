@@ -8,9 +8,13 @@ import { StatusSelect } from "@/components/status-select";
 import { ProjectNameEditor } from "@/components/project-name-editor";
 import { ProjectKebab } from "@/components/project-kebab";
 import { ProjectTabs } from "@/components/project-tabs";
-import { assignWelderFromForm, removeWelder } from "@/lib/actions/projects";
+import {
+  assignProjectMemberFromForm,
+  removeProjectMember,
+} from "@/lib/actions/projects";
 import { resolveCoverUrl } from "@/lib/covers";
 import { isPdfOnlyDrawing, type TilingHint } from "@/lib/drawing-status";
+import { ASSIGNABLE_PROJECT_ROLES } from "@/lib/employee-roles";
 
 type GalleryRow = {
   id: string;
@@ -54,11 +58,11 @@ export default async function ProjectPage({
     .select("profile_id, profiles(id, full_name, login, role)")
     .eq("project_id", id);
 
-  const { data: welders } = admin
+  const { data: availableTeam } = admin
     ? await supabase
         .from("profiles")
         .select("id, full_name, login")
-        .eq("role", "welder")
+        .in("role", ASSIGNABLE_PROJECT_ROLES)
         .eq("status", "active")
     : { data: null };
 
@@ -196,10 +200,10 @@ export default async function ProjectPage({
     ? project.clients[0]
     : project.clients;
 
-  const weldersSlot = admin ? (
+  const teamSlot = admin ? (
     <section className="border-t border-rule pt-6">
       <h2 className="font-display text-lg font-medium text-ink">
-        Assigned welders
+        Assigned team
       </h2>
       <ul className="mt-4 space-y-2">
         {members?.map((m) => {
@@ -212,7 +216,7 @@ export default async function ProjectPage({
               className="flex items-center justify-between text-sm"
             >
               <span>{p.full_name ?? p.login}</span>
-              <form action={removeWelder.bind(null, id, m.profile_id)}>
+              <form action={removeProjectMember.bind(null, id, m.profile_id)}>
                 <button
                   type="submit"
                   className="text-xs text-graph hover:text-weld"
@@ -224,26 +228,26 @@ export default async function ProjectPage({
           );
         })}
         {(!members || members.length === 0) && (
-          <li className="text-sm text-graph">No welders assigned</li>
+          <li className="text-sm text-graph">No team members assigned</li>
         )}
       </ul>
 
-      {welders && welders.length > 0 && (
-        <form action={assignWelderFromForm} className="mt-4 flex gap-2">
+      {availableTeam && availableTeam.length > 0 && (
+        <form action={assignProjectMemberFromForm} className="mt-4 flex gap-2">
           <input type="hidden" name="project_id" value={id} />
           <select
-            name="welder_id"
+            name="member_id"
             defaultValue=""
             className="flex-1 rounded border border-rule bg-bone px-3 py-2 text-sm"
           >
             <option value="" disabled>
-              Add welder…
+              Add team member…
             </option>
-            {welders
-              .filter((w) => !assignedIds.has(w.id))
-              .map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.full_name ?? w.login}
+            {availableTeam
+              .filter((member) => !assignedIds.has(member.id))
+              .map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.full_name ?? member.login}
                 </option>
               ))}
           </select>
@@ -299,7 +303,7 @@ export default async function ProjectPage({
         drawings={drawingFiles}
         gallery={gallery}
         canUpload={admin || assignedIds.has(profile.id)}
-        weldersSlot={weldersSlot}
+        teamSlot={teamSlot}
         isAdminUser={admin}
       />
     </div>

@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTiling } from "@/lib/queue";
 import { processDrawingInline } from "@/lib/tiling/process-drawing";
 import { canInlineTiling } from "@/lib/tiling/tile-storage";
+import { canManageProjects, isUserRole } from "@/lib/employee-roles";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -23,6 +24,16 @@ export async function POST(
   }
 
   const admin = createAdminClient();
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("role, status")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!profile || profile.status !== "active" || !isUserRole(profile.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const isAdmin = canManageProjects(profile.role);
   const { data: drawing } = await admin
     .from("drawings")
     .select("id, project_id, file_path, version, status")
@@ -31,14 +42,6 @@ export async function POST(
   if (!drawing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin =
-    profile?.role === "owner" || profile?.role === "draftsperson";
 
   if (!isAdmin) {
     const { data: member } = await admin
