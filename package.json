@@ -10,6 +10,7 @@
     "db:setup": "node scripts/apply-supabase-schema.mjs",
     "db:backup": "node scripts/backup-production.mjs",
     "db:check-migration": "node scripts/check-migration.mjs",
+    "db:check-employee-security": "node scripts/check-employee-security.mjs",
     "db:verify": "node scripts/verify-production-schema.mjs"
   },
   "dependencies": {

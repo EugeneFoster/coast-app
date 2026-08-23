@@ -115,13 +115,15 @@ async function seedAccountNeedsBootstrap(account: SeedAccount) {
 
   const { data: profile, error: profileError } = await admin
     .from("profiles")
-    .select("status")
+    .select("id")
     .eq("id", userId)
     .maybeSingle();
 
   if (profileError) throw new Error(profileError.message);
 
-  return !profile || profile.status !== "active";
+  // A disabled or invited seed profile is an intentional administrator state.
+  // Bootstrap only missing records; never silently reactivate an account.
+  return !profile;
 }
 
 export async function signIn(formData: FormData) {

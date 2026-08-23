@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTileObject } from "@/lib/tiling/tile-storage";
+import { canManageProjects, isUserRole } from "@/lib/employee-roles";
 
 export const runtime = "nodejs";
 
@@ -45,6 +46,16 @@ export async function GET(
 
   // 2. Authorize: admin or member of the drawing's project.
   const admin = createAdminClient();
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("role, status")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!profile || profile.status !== "active" || !isUserRole(profile.role)) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  const isAdmin = canManageProjects(profile.role);
   const { data: drawing } = await admin
     .from("drawings")
     .select("project_id")
@@ -53,14 +64,6 @@ export async function GET(
   if (!drawing) {
     return new NextResponse("Not found", { status: 404 });
   }
-
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin =
-    profile?.role === "owner" || profile?.role === "draftsperson";
 
   if (!isAdmin) {
     const { data: member } = await admin

@@ -61,7 +61,7 @@ export function ProjectTabs({
   drawings,
   gallery,
   canUpload,
-  weldersSlot,
+  teamSlot,
   isAdminUser,
 }: {
   projectId: string;
@@ -73,7 +73,7 @@ export function ProjectTabs({
   drawings: DrawingFile[];
   gallery: Media[];
   canUpload: boolean;
-  weldersSlot?: ReactNode;
+  teamSlot?: ReactNode;
   isAdminUser: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -106,7 +106,7 @@ export function ProjectTabs({
           coverPath={coverPath}
           description={description}
           modelUrl={modelUrl}
-          weldersSlot={weldersSlot}
+          teamSlot={teamSlot}
           isAdminUser={isAdminUser}
         />
       )}
@@ -145,7 +145,7 @@ function OverviewPanel({
   coverPath,
   description,
   modelUrl,
-  weldersSlot,
+  teamSlot,
   isAdminUser,
 }: {
   projectId: string;
@@ -154,7 +154,7 @@ function OverviewPanel({
   coverPath: string | null;
   description: string | null;
   modelUrl: string | null;
-  weldersSlot?: ReactNode;
+  teamSlot?: ReactNode;
   isAdminUser: boolean;
 }) {
   return (
@@ -196,7 +196,7 @@ function OverviewPanel({
         </section>
       )}
 
-      {weldersSlot}
+      {teamSlot}
     </div>
   );
 }

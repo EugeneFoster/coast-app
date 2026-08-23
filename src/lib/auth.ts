@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
+import { canManageProjects } from "@/lib/employee-roles";
 
 function shouldLogAuthError(error: unknown) {
   const digest =
@@ -67,7 +68,7 @@ export async function requireUser() {
 export async function requireAdmin() {
   const { user, profile } = await requireUser();
 
-  if (profile.role !== "owner" && profile.role !== "draftsperson") {
+  if (!canManageProjects(profile.role)) {
     redirect("/projects");
   }
 
@@ -75,5 +76,5 @@ export async function requireAdmin() {
 }
 
 export function isAdmin(profile: Profile) {
-  return profile.role === "owner" || profile.role === "draftsperson";
+  return canManageProjects(profile.role);
 }

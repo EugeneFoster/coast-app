@@ -1,6 +1,7 @@
 # COAST — metal works
 
-Field app for coastal metal fabrication: authentication, role-based access, and project management.
+Operations CRM for marine fabrication and service: employee access, project teams,
+drawings, markups, chat, and project management.
 
 ## Stack
 
@@ -78,6 +79,13 @@ drawing counts after a migration:
 railway run -- npm run db:verify
 ```
 
+Exercise the employee-access guardrails against the production database inside
+transactions that are rolled back:
+
+```bash
+railway run -- npm run db:check-employee-security
+```
+
 ### Required Railway Variables
 
 Add these under the service's **Variables** tab:
@@ -116,7 +124,12 @@ request; sign-in is a server action (`src/lib/actions/auth.ts`).
 
 | Role | Access |
 |------|--------|
-| owner / draftsperson | Full admin — projects |
-| welder | Read-only on assigned projects only |
+| owner | Full access, including management of other owner accounts |
+| draftsperson / project_manager | Project and employee administration |
+| sales / parts / accounting | CRM roles prepared for the next workflow stages |
+| welder / painter / mechanic / installer | Assigned project access |
 
-RLS enforces access at the database layer.
+Employees are invited from **Settings → Employees**, where administrators assign
+roles, job titles, phone numbers, trade specialties, and account status. RLS and a
+database trigger enforce access and prevent employees from promoting their own
+accounts.

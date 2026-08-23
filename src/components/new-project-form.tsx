@@ -5,7 +5,7 @@ import { ModelPreview } from "@/components/model-preview";
 import { createProjectAction } from "@/lib/actions/projects";
 import { createClient } from "@/lib/supabase/client";
 
-type WelderOption = { id: string; full_name: string | null; login: string };
+type TeamOption = { id: string; full_name: string | null; login: string };
 
 const MAX_COVER = 10 * 1024 * 1024;
 const MAX_MODEL = 80 * 1024 * 1024;
@@ -24,7 +24,7 @@ function ext(name: string) {
   return m ? m[0].toLowerCase() : "";
 }
 
-export function NewProjectForm({ welders }: { welders: WelderOption[] }) {
+export function NewProjectForm({ team }: { team: TeamOption[] }) {
   const supabase = useMemo(() => createClient(), []);
 
   const [name, setName] = useState("");
@@ -38,14 +38,14 @@ export function NewProjectForm({ welders }: { welders: WelderOption[] }) {
     [modelFile],
   );
 
-  const [welderIds, setWelderIds] = useState<Set<string>>(new Set());
+  const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
 
-  function toggleWelder(id: string) {
-    setWelderIds((prev) => {
+  function toggleMember(id: string) {
+    setMemberIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -132,7 +132,7 @@ export function NewProjectForm({ welders }: { welders: WelderOption[] }) {
         coverPath,
         modelPath,
         drawings,
-        welderIds: Array.from(welderIds),
+        memberIds: Array.from(memberIds),
       });
 
       if (result?.error) {
@@ -256,30 +256,30 @@ export function NewProjectForm({ welders }: { welders: WelderOption[] }) {
       {/* Team */}
       <div>
         <span className={labelClass}>Assign team</span>
-        {welders.length === 0 ? (
-          <p className="mt-1 text-sm text-graph">No active welders to assign.</p>
+        {team.length === 0 ? (
+          <p className="mt-1 text-sm text-graph">No active team members to assign.</p>
         ) : (
           <div className="mt-2 space-y-1 rounded border border-rule bg-paper p-3">
-            {welders.map((w) => (
+            {team.map((member) => (
               <label
-                key={w.id}
+                key={member.id}
                 className="flex cursor-pointer items-center gap-2 text-sm text-ink"
               >
                 <input
                   type="checkbox"
-                  checked={welderIds.has(w.id)}
-                  onChange={() => toggleWelder(w.id)}
+                  checked={memberIds.has(member.id)}
+                  onChange={() => toggleMember(member.id)}
                   disabled={pending}
                   className="accent-weld"
                 />
-                {w.full_name ?? w.login}
+                {member.full_name ?? member.login}
               </label>
             ))}
           </div>
         )}
-        {welderIds.size === 0 && (
+        {memberIds.size === 0 && (
           <p className="mt-2 text-xs text-graph">
-            No welders assigned — only owners and draftspeople will see this
+            No team assigned — only project managers and CAD designers will see this
             project.
           </p>
         )}

@@ -5,6 +5,7 @@ import { requireUser, isAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { MarkupKind, MarkupStatus, MarkupWithThread } from "@/lib/types";
+import { canManageProjects, isUserRole } from "@/lib/employee-roles";
 
 const PHOTO_BUCKET = "markup-photos";
 
@@ -24,11 +25,15 @@ async function assertDrawingMember(drawingId: string) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, status")
     .eq("id", user.id)
     .single();
 
-  if (profile?.role === "owner" || profile?.role === "draftsperson") {
+  if (!profile || profile.status !== "active" || !isUserRole(profile.role)) {
+    throw new Error("Your employee account is not active.");
+  }
+
+  if (canManageProjects(profile.role)) {
     return { userId: user.id, isAdminUser: true, projectId: drawing.project_id };
   }
 
@@ -274,7 +279,7 @@ export async function addMarkupCommentAction(
   // Auto-answer when draftsperson/owner replies to an open thread.
   if (
     markup.status === "open" &&
-    (profile?.role === "owner" || profile?.role === "draftsperson")
+    profile && isUserRole(profile.role) && canManageProjects(profile.role)
   ) {
     await supabase
       .from("drawing_markups")

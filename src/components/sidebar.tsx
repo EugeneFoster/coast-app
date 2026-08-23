@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Profile } from "@/lib/types";
 import { signOut } from "@/lib/actions/session";
+import { userRoleLabel } from "@/lib/employee-roles";
 
 const navItems: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: "/projects", label: "Projects" },
@@ -92,8 +93,8 @@ export function Sidebar({
             <p className="truncate text-sm font-medium text-ink">
               {profile.full_name ?? profile.login}
             </p>
-            <p className="truncate text-xs lowercase text-graph">
-              {profile.role}
+            <p className="truncate text-xs text-graph">
+              {userRoleLabel(profile.role)}
             </p>
           </div>
         </div>
