@@ -77,3 +77,16 @@ export function canManageProjects(role: UserRole) {
 export function canManageEmployees(role: UserRole) {
   return canManageProjects(role);
 }
+
+export function canManageSales(role: UserRole) {
+  return (
+    role === "owner" ||
+    role === "project_manager" ||
+    role === "sales" ||
+    role === "draftsperson"
+  );
+}
+
+export function canViewSales(role: UserRole) {
+  return canManageSales(role) || role === "accounting";
+}

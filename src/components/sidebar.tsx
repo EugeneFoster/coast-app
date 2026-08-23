@@ -4,10 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Profile } from "@/lib/types";
 import { signOut } from "@/lib/actions/session";
-import { userRoleLabel } from "@/lib/employee-roles";
+import { canViewSales, userRoleLabel } from "@/lib/employee-roles";
 
-const navItems: Array<{ href: string; label: string; adminOnly?: boolean }> = [
+const navItems: Array<{
+  href: string;
+  label: string;
+  adminOnly?: boolean;
+  salesOnly?: boolean;
+}> = [
   { href: "/projects", label: "Projects" },
+  { href: "/sales", label: "Sales CRM", salesOnly: true },
   { href: "/chat", label: "Chat" },
   { href: "/library", label: "Library" },
   { href: "/archive", label: "Archive" },
@@ -37,7 +43,7 @@ export function Sidebar({
   const admin = isAdminUser;
 
   return (
-    <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-rule bg-paper text-ink">
+    <aside className="print-hidden sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-rule bg-paper text-ink">
       <div className="px-6 py-7">
         <p className="font-display text-2xl font-medium uppercase tracking-[0.3em] text-ink">
           COAST
@@ -49,7 +55,11 @@ export function Sidebar({
 
       <nav className="flex flex-1 flex-col gap-0.5 px-4 py-2">
         {navItems
-          .filter((item) => !item.adminOnly || admin)
+          .filter(
+            (item) =>
+              (!item.adminOnly || admin) &&
+              (!item.salesOnly || canViewSales(profile.role)),
+          )
           .map((item) => {
             const active =
               pathname === item.href ||

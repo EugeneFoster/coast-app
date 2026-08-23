@@ -101,3 +101,23 @@ body {
 .font-mono {
   font-family: var(--font-mono), monospace;
 }
+
+@media print {
+  .print-hidden {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  body,
+  .quote-page {
+    background: #fff !important;
+  }
+
+  .quote-page {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+}
