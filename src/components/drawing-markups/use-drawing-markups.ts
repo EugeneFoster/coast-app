@@ -38,10 +38,6 @@ export function useDrawingMarkups({
   const [online, setOnline] = useState(isOnline());
 
   useEffect(() => {
-    setMarkups(initial);
-  }, [initial]);
-
-  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -123,11 +119,19 @@ export function useDrawingMarkups({
   }, [refreshPending, supabase]);
 
   useEffect(() => {
-    void refreshPending();
-  }, [refreshPending]);
+    let cancelled = false;
+    void listPendingOps().then((ops) => {
+      if (!cancelled) setPendingIds(new Set(ops.map((op) => op.clientId)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
-    if (online) void flushQueue();
+    if (!online) return;
+    const timeout = window.setTimeout(() => void flushQueue(), 0);
+    return () => window.clearTimeout(timeout);
   }, [online, flushQueue]);
 
   useEffect(() => {

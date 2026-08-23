@@ -200,7 +200,7 @@ export async function deleteInkMarkupAction(
 }
 
 export async function createMarkupAction(input: CreateMarkupInput) {
-  const { userId, isAdminUser, projectId } = await assertDrawingMember(
+  const { userId, projectId } = await assertDrawingMember(
     input.drawingId,
   );
   const supabase = await createClient();

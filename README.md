@@ -56,6 +56,28 @@ Run this once (or after editing `supabase/migrate.sql`) with `SUPABASE_DB_PASSWO
 set. It is intentionally **not** part of the deploy so a transient DB hiccup can
 never block an app deploy.
 
+### Production database safety
+
+Before applying a production migration, save an application-data and schema
+catalog snapshot outside the repository:
+
+```bash
+railway run -- npm run db:backup -- /private/tmp/coast-backup
+```
+
+Check a migration sequence inside a transaction that is always rolled back:
+
+```bash
+railway run -- npm run db:check-migration -- supabase/migrations/<migration>.sql
+```
+
+Verify required tables, storage buckets, migration history, and denormalized
+drawing counts after a migration:
+
+```bash
+railway run -- npm run db:verify
+```
+
 ### Required Railway Variables
 
 Add these under the service's **Variables** tab:

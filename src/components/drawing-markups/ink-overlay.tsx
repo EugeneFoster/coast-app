@@ -13,9 +13,7 @@ export function InkOverlay({
   selectedId,
   pageWidth,
   pageHeight,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   viewer,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   osd,
   draftPath,
   draftColor,

@@ -7,7 +7,10 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "db:setup": "node scripts/apply-supabase-schema.mjs"
+    "db:setup": "node scripts/apply-supabase-schema.mjs",
+    "db:backup": "node scripts/backup-production.mjs",
+    "db:check-migration": "node scripts/check-migration.mjs",
+    "db:verify": "node scripts/verify-production-schema.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
@@ -17,7 +20,7 @@
     "@supabase/supabase-js": "^2.108.2",
     "bullmq": "^5.79.2",
     "ioredis": "^5.11.1",
-    "next": "16.2.9",
+    "next": "16.3.2",
     "openseadragon": "^6.0.2",
     "pg": "^8.22.0",
     "react": "19.2.4",
@@ -30,7 +33,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.3.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

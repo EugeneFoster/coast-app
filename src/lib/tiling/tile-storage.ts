@@ -19,7 +19,7 @@ function contentType(key: string) {
   return CONTENT_TYPES[path.extname(key).toLowerCase()] || "application/octet-stream";
 }
 
-function useR2() {
+function hasR2Configuration() {
   return getR2() != null;
 }
 
@@ -35,7 +35,7 @@ export async function putTileFile(key: string, filePath: string) {
   const body = await readFile(filePath);
   const type = contentType(key);
 
-  if (useR2()) {
+  if (hasR2Configuration()) {
     const s3 = getR2()!;
     await s3.send(
       new PutObjectCommand({
@@ -75,7 +75,7 @@ export async function putTileDir(localDir: string, keyPrefix: string) {
 export async function getTileObject(
   key: string,
 ): Promise<{ body: Uint8Array; contentType: string } | null> {
-  if (useR2()) {
+  if (hasR2Configuration()) {
     const { getR2Object } = await import("@/lib/r2");
     const obj = await getR2Object(key);
     if (!obj) return null;
@@ -97,5 +97,5 @@ export function canInlineTiling(): boolean {
 }
 
 export function tileBackend(): "r2" | "supabase" {
-  return useR2() ? "r2" : "supabase";
+  return hasR2Configuration() ? "r2" : "supabase";
 }
