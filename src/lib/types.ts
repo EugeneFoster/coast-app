@@ -329,6 +329,105 @@ export interface InventoryMovement {
   created_by: string;
 }
 
+export type InvoiceStatus =
+  | "draft"
+  | "sent"
+  | "partially_paid"
+  | "paid"
+  | "void";
+export type InvoicePaymentType = "deposit" | "payment";
+export type InvoicePaymentMethod =
+  | "cash"
+  | "card"
+  | "e_transfer"
+  | "cheque"
+  | "bank_transfer"
+  | "other";
+
+export interface Invoice {
+  id: string;
+  invoice_number: string;
+  client_id: string;
+  project_id: string | null;
+  source_estimate_id: string | null;
+  title: string;
+  status: InvoiceStatus;
+  issue_date: string;
+  due_date: string | null;
+  notes: string | null;
+  terms: string | null;
+  tax_rate_percent: number;
+  discount_amount: number;
+  subtotal: number;
+  tax_amount: number;
+  total: number;
+  amount_paid: number;
+  balance_due: number;
+  sent_at: string | null;
+  paid_at: string | null;
+  voided_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvoiceItem {
+  id: string;
+  invoice_id: string;
+  item_type: EstimateItemType;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  line_total: number;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface InvoicePayment {
+  id: string;
+  invoice_id: string;
+  payment_type: InvoicePaymentType;
+  payment_date: string;
+  amount: number;
+  method: InvoicePaymentMethod;
+  reference: string | null;
+  note: string | null;
+  reversed_at: string | null;
+  reversed_by: string | null;
+  reversal_reason: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectFinancialSettings {
+  project_id: string;
+  labor_cost_rate: number;
+  overhead_cost: number;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectProfitability {
+  project_id: string;
+  project_name: string;
+  client_id: string | null;
+  client_name: string | null;
+  invoiced_revenue: number;
+  payments_received: number;
+  outstanding_balance: number;
+  labor_hours: number;
+  labor_cost_rate: number;
+  labor_cost: number;
+  material_cost: number;
+  overhead_cost: number;
+  total_cost: number;
+  gross_profit: number;
+  gross_margin_percent: number | null;
+}
+
 export type StructureType = "dock" | "wharf" | "pontoon" | "ramp" | "other";
 
 export interface Project {

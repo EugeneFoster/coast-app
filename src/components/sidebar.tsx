@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { Profile } from "@/lib/types";
 import { signOut } from "@/lib/actions/session";
 import {
+  canViewBilling,
   canViewInventory,
   canViewSales,
   userRoleLabel,
@@ -16,11 +17,13 @@ const navItems: Array<{
   adminOnly?: boolean;
   salesOnly?: boolean;
   inventoryOnly?: boolean;
+  billingOnly?: boolean;
 }> = [
   { href: "/projects", label: "Projects" },
   { href: "/work-orders", label: "Work orders" },
   { href: "/inventory", label: "Inventory", inventoryOnly: true },
   { href: "/sales", label: "Sales CRM", salesOnly: true },
+  { href: "/billing", label: "Billing", billingOnly: true },
   { href: "/chat", label: "Chat" },
   { href: "/library", label: "Library" },
   { href: "/archive", label: "Archive" },
@@ -66,7 +69,8 @@ export function Sidebar({
             (item) =>
               (!item.adminOnly || admin) &&
               (!item.salesOnly || canViewSales(profile.role)) &&
-              (!item.inventoryOnly || canViewInventory(profile.role)),
+              (!item.inventoryOnly || canViewInventory(profile.role)) &&
+              (!item.billingOnly || canViewBilling(profile.role)),
           )
           .map((item) => {
             const active =

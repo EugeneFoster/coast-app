@@ -2,11 +2,14 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import {
+  canManageBilling,
   canManageOperations,
   canManageInventory,
   canManageProjects,
   canManageSales,
   canViewInventory,
+  canViewBilling,
+  canViewProfitability,
   canViewPurchasing,
   canViewSales,
 } from "@/lib/employee-roles";
@@ -120,5 +123,23 @@ export async function requireInventoryManager() {
 export async function requirePurchasingViewer() {
   const { user, profile } = await requireUser();
   if (!canViewPurchasing(profile.role)) redirect("/inventory");
+  return { user, profile };
+}
+
+export async function requireBillingViewer() {
+  const { user, profile } = await requireUser();
+  if (!canViewBilling(profile.role)) redirect("/projects");
+  return { user, profile };
+}
+
+export async function requireBillingManager() {
+  const { user, profile } = await requireUser();
+  if (!canManageBilling(profile.role)) redirect("/billing");
+  return { user, profile };
+}
+
+export async function requireProfitabilityViewer() {
+  const { user, profile } = await requireUser();
+  if (!canViewProfitability(profile.role)) redirect("/billing");
   return { user, profile };
 }

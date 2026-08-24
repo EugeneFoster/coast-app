@@ -117,3 +117,19 @@ export function canViewInventory(role: UserRole) {
 export function canViewPurchasing(role: UserRole) {
   return canManageInventory(role) || role === "accounting";
 }
+
+export function canManageBilling(role: UserRole) {
+  return role === "owner" || role === "project_manager" || role === "accounting";
+}
+
+export function canViewBilling(role: UserRole) {
+  return canManageBilling(role) || role === "sales";
+}
+
+export function canViewProfitability(role: UserRole) {
+  return role === "owner" || role === "project_manager" || role === "accounting";
+}
+
+export function canManageProjectFinancials(role: UserRole) {
+  return role === "owner" || role === "accounting";
+}

@@ -1,7 +1,7 @@
 # COAST — metal works
 
-Operations CRM for marine fabrication and service: employee access, project teams,
-drawings, markups, chat, and project management.
+Operations CRM for marine fabrication and service: sales, projects, work orders,
+inventory, billing, employee access, drawings, markups, and chat.
 
 ## Stack
 
@@ -38,7 +38,7 @@ npm run db:setup
 
 ## Deploy (Railway)
 
-Railway builds with Nixpacks (auto-detected):
+Railway builds with the repository `Dockerfile`:
 
 - **Build**: `npm run build` (`next build`)
 - **Start**: `npm run start` (`next start`, binds to Railway's `$PORT`)
@@ -95,7 +95,7 @@ Add these under the service's **Variables** tab:
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (account bootstrap) |
-| `SUPABASE_DB_PASSWORD` | Postgres password (auto schema/migrations) |
+| `SUPABASE_DB_PASSWORD` | Postgres password for backups, migration checks, and schema verification |
 | `ADMIN_LOGIN` / `ADMIN_PASSWORD` | Seed owner account |
 | `DRAW_LOGIN` / `DRAW_PASSWORD` | Seed draftsperson account |
 | `REDIS_URL` | Redis connection (optional — inline tiling runs on web service when unset) |
@@ -124,11 +124,12 @@ request; sign-in is a server action (`src/lib/actions/auth.ts`).
 
 | Role | Access |
 |------|--------|
-| owner | Full access, including management of other owner accounts |
-| draftsperson / project_manager | Project and employee administration |
-| sales | Sales CRM management and inventory catalog visibility |
+| owner | Full access, including billing and management of other owner accounts |
+| project_manager | Projects, employees, sales, operations, inventory, billing, and profitability |
+| draftsperson | Projects, employees, sales, and operations |
+| sales | Sales CRM management plus read-only billing and inventory catalog visibility |
 | parts | Supplier, purchasing, stock, and project-issue management |
-| accounting | Read-only sales, operations, purchasing, and inventory totals |
+| accounting | Billing management, project cost assumptions, and read-only sales/operations/inventory |
 | welder / painter / mechanic / installer | Assigned project access |
 
 Employees are invited from **Settings → Employees**, where administrators assign
@@ -203,4 +204,28 @@ and reversal, inventory roles, and totals inside a rolled-back transaction:
 
 ```bash
 railway run -- npm run db:check-inventory-migration
+```
+
+## Billing & project profitability
+
+The **Billing** workspace is available to owners, project managers, accounting,
+and sales. Owners, project managers, and accounting create invoices manually or
+from accepted quotes, send them, and record customer deposits and payments. Sales
+has read-only visibility for customer follow-up.
+
+Invoice totals are database-calculated and lines lock after an invoice is sent.
+Payments use an immutable ledger: corrections require a reversal reason, retain
+the original entry, and reopen the invoice balance. Overpayments and invalid
+status transitions are blocked in Postgres.
+
+Owners, project managers, and accounting can review project profitability:
+pre-tax invoiced revenue minus active material usage, logged labor hours at a
+configured internal blended cost rate, and project overhead. Only owners and
+accounting can edit the internal rate and overhead assumptions.
+
+Validate estimate-to-invoice conversion, totals, deposits, payments, reversals,
+profitability, and billing role boundaries inside a rolled-back transaction:
+
+```bash
+railway run -- npm run db:check-billing-migration
 ```
