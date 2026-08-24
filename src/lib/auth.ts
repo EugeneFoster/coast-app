@@ -3,8 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 import {
   canManageOperations,
+  canManageInventory,
   canManageProjects,
   canManageSales,
+  canViewInventory,
+  canViewPurchasing,
   canViewSales,
 } from "@/lib/employee-roles";
 
@@ -99,5 +102,23 @@ export async function requireSalesManager() {
 export async function requireOperationsManager() {
   const { user, profile } = await requireUser();
   if (!canManageOperations(profile.role)) redirect("/work-orders");
+  return { user, profile };
+}
+
+export async function requireInventoryViewer() {
+  const { user, profile } = await requireUser();
+  if (!canViewInventory(profile.role)) redirect("/projects");
+  return { user, profile };
+}
+
+export async function requireInventoryManager() {
+  const { user, profile } = await requireUser();
+  if (!canManageInventory(profile.role)) redirect("/inventory");
+  return { user, profile };
+}
+
+export async function requirePurchasingViewer() {
+  const { user, profile } = await requireUser();
+  if (!canViewPurchasing(profile.role)) redirect("/inventory");
   return { user, profile };
 }

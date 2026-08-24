@@ -4,16 +4,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Profile } from "@/lib/types";
 import { signOut } from "@/lib/actions/session";
-import { canViewSales, userRoleLabel } from "@/lib/employee-roles";
+import {
+  canViewInventory,
+  canViewSales,
+  userRoleLabel,
+} from "@/lib/employee-roles";
 
 const navItems: Array<{
   href: string;
   label: string;
   adminOnly?: boolean;
   salesOnly?: boolean;
+  inventoryOnly?: boolean;
 }> = [
   { href: "/projects", label: "Projects" },
   { href: "/work-orders", label: "Work orders" },
+  { href: "/inventory", label: "Inventory", inventoryOnly: true },
   { href: "/sales", label: "Sales CRM", salesOnly: true },
   { href: "/chat", label: "Chat" },
   { href: "/library", label: "Library" },
@@ -59,7 +65,8 @@ export function Sidebar({
           .filter(
             (item) =>
               (!item.adminOnly || admin) &&
-              (!item.salesOnly || canViewSales(profile.role)),
+              (!item.salesOnly || canViewSales(profile.role)) &&
+              (!item.inventoryOnly || canViewInventory(profile.role)),
           )
           .map((item) => {
             const active =

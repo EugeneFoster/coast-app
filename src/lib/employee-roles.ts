@@ -105,3 +105,15 @@ export function canViewSales(role: UserRole) {
 export function canManageOperations(role: UserRole) {
   return canManageProjects(role);
 }
+
+export function canManageInventory(role: UserRole) {
+  return role === "owner" || role === "project_manager" || role === "parts";
+}
+
+export function canViewInventory(role: UserRole) {
+  return canManageInventory(role) || role === "sales" || role === "accounting";
+}
+
+export function canViewPurchasing(role: UserRole) {
+  return canManageInventory(role) || role === "accounting";
+}

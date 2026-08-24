@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { InventoryIssueForm } from "@/components/inventory-issue-form";
 import { MaterialEntryForm } from "@/components/material-entry-form";
 import { TimeEntryForm } from "@/components/time-entry-form";
 import { WorkOrderDetailsForm } from "@/components/work-order-details-form";
@@ -10,12 +11,15 @@ import {
   removeWorkOrderEmployeeAction,
   updateWorkOrderStatusAction,
 } from "@/lib/actions/operations";
+import { reverseInventoryIssueAction } from "@/lib/actions/inventory";
 import { requireUser } from "@/lib/auth";
 import {
   ASSIGNABLE_WORK_ORDER_ROLES,
+  canManageInventory,
   canManageOperations,
   userRoleLabel,
 } from "@/lib/employee-roles";
+import { getInventoryItemOptions } from "@/lib/inventory-data";
 import {
   allowedWorkOrderTransitions,
   formatHours,
@@ -67,6 +71,7 @@ export default async function WorkOrderPage({
   const { id, workOrderId } = await params;
   const { user, profile } = await requireUser();
   const canManage = canManageOperations(profile.role);
+  const canManageWarehouse = canManageInventory(profile.role);
   const supabase = await createClient();
 
   const [
@@ -90,7 +95,7 @@ export default async function WorkOrderPage({
   if (!project || !workOrderData) notFound();
   const workOrder = workOrderData as WorkOrder;
 
-  const [assignmentResult, timeResult, materialResult] = await Promise.all([
+  const [assignmentResult, timeResult, materialResult, inventoryItems] = await Promise.all([
     supabase
       .from("work_order_assignments")
       .select("*")
@@ -107,6 +112,7 @@ export default async function WorkOrderPage({
       .select("*")
       .eq("work_order_id", workOrderId)
       .order("created_at", { ascending: false }),
+    canManageWarehouse ? getInventoryItemOptions() : Promise.resolve([]),
   ]);
   const assignments = (assignmentResult.data ?? []) as WorkOrderAssignment[];
   const timeEntries = (timeResult.data ?? []) as TimeEntry[];
@@ -126,7 +132,7 @@ export default async function WorkOrderPage({
   );
   const actualHours = timeEntries.reduce((sum, entry) => sum + Number(entry.hours), 0);
   const materialCost = materialEntries.reduce(
-    (sum, entry) => sum + Number(entry.line_total),
+    (sum, entry) => sum + (entry.reversed_at ? 0 : Number(entry.line_total)),
     0,
   );
 
@@ -370,22 +376,50 @@ export default async function WorkOrderPage({
           <h2 className="font-display text-xl font-medium text-ink">Materials and parts</h2>
           <span className="font-mono text-sm text-graph">{formatCad(materialCost)}</span>
         </div>
+        {canManageWarehouse && (
+          <div className="mt-4">
+            <InventoryIssueForm
+              projectId={id}
+              workOrderId={workOrderId}
+              items={inventoryItems}
+            />
+          </div>
+        )}
         <div className="mt-4 overflow-hidden rounded border border-rule bg-paper">
           {materialEntries.map((entry) => {
             const employee = employeeMap.get(entry.entered_by);
-            const canDelete = canManage || (canLog && entry.entered_by === user.id);
+            const warehouseEntry = !!entry.inventory_movement_id;
+            const canDelete =
+              !warehouseEntry &&
+              !entry.reversed_at &&
+              (canManage || (canLog && entry.entered_by === user.id));
             return (
               <div
                 key={entry.id}
-                className="grid gap-2 border-b border-rule px-4 py-3 text-sm last:border-0 lg:grid-cols-[1fr_8rem_7rem_8rem_8rem_10rem_3rem] lg:items-center"
+                className={`grid gap-2 border-b border-rule px-4 py-3 text-sm last:border-0 lg:grid-cols-[1fr_8rem_7rem_8rem_8rem_10rem_6rem] lg:items-center ${
+                  entry.reversed_at ? "opacity-50" : ""
+                }`}
               >
-                <span className="text-ink">{entry.description}</span>
+                <span className="text-ink">
+                  {entry.description}
+                  {warehouseEntry && (
+                    <span className="ml-2 rounded bg-ink/5 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-wide text-graph">
+                      Warehouse{entry.reversed_at ? " · reversed" : ""}
+                    </span>
+                  )}
+                </span>
                 <span className="font-mono text-xs text-graph">{entry.part_number ?? "—"}</span>
                 <span className="font-mono text-xs text-graph">
                   {entry.quantity} {entry.unit}
                 </span>
                 <span className="font-mono text-xs text-ink">{formatCad(entry.unit_cost)}</span>
-                <span className="font-mono text-sm text-ink">{formatCad(entry.line_total)}</span>
+                <span
+                  className={`font-mono text-sm text-ink ${
+                    entry.reversed_at ? "line-through" : ""
+                  }`}
+                >
+                  {formatCad(entry.line_total)}
+                </span>
                 <span className="truncate text-xs text-graph">
                   {employee?.full_name ?? employee?.login ?? "Employee"}
                 </span>
@@ -400,6 +434,19 @@ export default async function WorkOrderPage({
                   >
                     <button type="submit" className="text-xs text-graph hover:text-weld">
                       ×
+                    </button>
+                  </form>
+                ) : warehouseEntry && canManageWarehouse && !entry.reversed_at ? (
+                  <form
+                    action={reverseInventoryIssueAction.bind(
+                      null,
+                      id,
+                      workOrderId,
+                      entry.id,
+                    )}
+                  >
+                    <button type="submit" className="text-xs text-graph hover:text-weld">
+                      Reverse
                     </button>
                   </form>
                 ) : (
