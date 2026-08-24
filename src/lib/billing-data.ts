@@ -6,10 +6,12 @@ import {
   requireProfitabilityViewer,
 } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import type { BillingInventoryOption } from "@/lib/billing";
 import type {
   ClientContact,
   Invoice,
   InvoiceItem,
+  InvoiceItemCost,
   InvoicePayment,
   ProjectFinancialSettings,
   ProjectProfitability,
@@ -63,8 +65,18 @@ export type BillingInvoiceDetail = {
   contact: ClientContact | null;
   project: { id: string; name: string } | null;
   sourceEstimate: { id: string; estimate_number: string } | null;
-  items: InvoiceItem[];
+  items: BillingInvoiceItem[];
   payments: InvoicePayment[];
+};
+
+export type BillingInvoiceItem = InvoiceItem & {
+  inventory_item: {
+    id: string;
+    sku: string;
+    name: string;
+    quantity_on_hand: number;
+    unit: string;
+  } | null;
 };
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
@@ -200,7 +212,9 @@ export async function getBillingInvoiceDetail(
         : Promise.resolve({ data: null, error: null }),
       supabase
         .from("invoice_items")
-        .select("*")
+        .select(
+          "*, inventory_item:inventory_items(id, sku, name, quantity_on_hand, unit)",
+        )
         .eq("invoice_id", invoice.id)
         .order("sort_order")
         .order("created_at"),
@@ -239,9 +253,59 @@ export async function getBillingInvoiceDetail(
     contact: contactResult.data as ClientContact | null,
     project: projectResult.data,
     sourceEstimate,
-    items: (itemsResult.data ?? []) as InvoiceItem[],
+    items: (itemsResult.data ?? []).map((item) => ({
+      ...item,
+      quantity: Number(item.quantity),
+      unit_price: Number(item.unit_price),
+      line_total: Number(item.line_total),
+      inventory_item: firstRelation(
+        item.inventory_item as
+          | BillingInvoiceItem["inventory_item"]
+          | NonNullable<BillingInvoiceItem["inventory_item"]>[]
+          | null,
+      ),
+    })) as BillingInvoiceItem[],
     payments: (paymentsResult.data ?? []) as InvoicePayment[],
   };
+}
+
+export async function getBillingInventoryOptions(): Promise<BillingInventoryOption[]> {
+  await requireBillingManager();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select("id, sku, name, unit, quantity_on_hand, selling_price")
+    .eq("active", true)
+    .order("sku");
+  if (error) throw new Error(`Could not load stock items: ${error.message}`);
+  return (data ?? []).map((item) => ({
+    id: item.id,
+    sku: item.sku,
+    name: item.name,
+    unit: item.unit,
+    quantity_on_hand: Number(item.quantity_on_hand),
+    selling_price:
+      item.selling_price === null ? null : Number(item.selling_price),
+  }));
+}
+
+export async function getInvoiceItemCosts(
+  invoiceId: string,
+): Promise<InvoiceItemCost[]> {
+  await requireProfitabilityViewer();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("invoice_item_costs")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("created_at");
+  if (error) throw new Error(`Could not load invoice COGS: ${error.message}`);
+  return (data ?? []).map((cost) => ({
+    ...cost,
+    quantity: Number(cost.quantity),
+    unit_cost: Number(cost.unit_cost),
+    total_cost: Number(cost.total_cost),
+  })) as InvoiceItemCost[];
 }
 
 export async function getProjectProfitability(projectId: string) {

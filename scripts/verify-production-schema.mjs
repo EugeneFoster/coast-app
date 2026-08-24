@@ -10,6 +10,7 @@ const expectedTables = [
   "estimates",
   "gallery_items",
   "invoice_items",
+  "invoice_item_costs",
   "invoice_payments",
   "invoices",
   "inventory_items",
@@ -66,6 +67,8 @@ const expectedMaterialEntryColumns = [
   "reversed_at",
   "reversed_by",
 ];
+const expectedInvoiceItemColumns = ["inventory_item_id"];
+const expectedInventoryMovementColumns = ["invoice_id"];
 const expectedRoles = [
   "owner",
   "project_manager",
@@ -161,6 +164,7 @@ try {
     "public.invoice_items.invoice_items_update",
     "public.invoice_items.invoice_items_delete",
     "public.invoice_payments.invoice_payments_view",
+    "public.invoice_item_costs.invoice_item_costs_profitability_view",
     "public.project_financial_settings.project_financial_settings_view",
     "public.project_financial_settings.project_financial_settings_manage",
   ];
@@ -205,11 +209,11 @@ try {
     where n.nspname = 'public'
       and c.relname in (
         'invoices', 'invoice_items', 'invoice_payments',
-        'project_financial_settings'
+        'project_financial_settings', 'invoice_item_costs'
       )
   `);
   const billingRls =
-    billingSecurityRows.length === 4 &&
+    billingSecurityRows.length === 5 &&
     billingSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
 
   const { rows: profileColumnRows } = await client.query(`
@@ -241,6 +245,24 @@ try {
     where table_schema = 'public' and table_name = 'material_entries'
   `);
   const materialEntryColumns = materialEntryColumnRows.map(
+    ({ column_name }) => column_name,
+  );
+
+  const { rows: invoiceItemColumnRows } = await client.query(`
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'invoice_items'
+  `);
+  const invoiceItemColumns = invoiceItemColumnRows.map(
+    ({ column_name }) => column_name,
+  );
+
+  const { rows: inventoryMovementColumnRows } = await client.query(`
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'inventory_movements'
+  `);
+  const inventoryMovementColumns = inventoryMovementColumnRows.map(
     ({ column_name }) => column_name,
   );
 
@@ -318,7 +340,8 @@ try {
         'issue_inventory_to_work_order',
         'reverse_inventory_issue',
         'protect_purchase_order_fields',
-        'validate_inventory_material_entry'
+        'validate_inventory_material_entry',
+        'validate_invoice_inventory_movement'
       )
   `);
 
@@ -340,7 +363,10 @@ try {
         'reverse_invoice_payment',
         'billing_project_directory',
         'billing_estimate_directory',
-        'project_profitability'
+        'project_profitability',
+        'validate_invoice_inventory_item',
+        'validate_invoice_item_cost',
+        'protect_invoice_item_costs'
       )
   `);
 
@@ -461,6 +487,8 @@ try {
     select
       (select count(*)::integer from public.invoices) as invoices,
       (select count(*)::integer from public.invoice_items) as invoice_items,
+      (select count(*)::integer from public.invoice_item_costs)
+        as invoice_item_costs,
       (select count(*)::integer from public.invoice_payments) as invoice_payments,
       (select count(*)::integer from public.project_financial_settings)
         as project_financial_settings,
@@ -529,7 +557,53 @@ try {
           or (i.status <> 'paid' and i.paid_at is not null)
           or (i.status = 'void' and i.voided_at is null)
           or (i.status <> 'void' and i.voided_at is not null)
-      ) as status_timestamp_mismatches
+      ) as status_timestamp_mismatches,
+      (
+        select count(*)::integer
+        from public.invoice_items ii
+        join public.invoices i on i.id = ii.invoice_id
+        left join public.invoice_item_costs iic on iic.invoice_item_id = ii.id
+        where ii.inventory_item_id is not null
+          and (
+            (i.status in ('sent', 'partially_paid', 'paid') and iic.invoice_item_id is null)
+            or (i.status in ('draft', 'void') and iic.invoice_item_id is not null)
+          )
+      ) as stock_line_allocation_mismatches,
+      (
+        select count(*)::integer
+        from public.invoice_item_costs iic
+        left join public.invoice_items ii on ii.id = iic.invoice_item_id
+        left join public.inventory_movements im on im.id = iic.inventory_movement_id
+        left join public.invoices i on i.id = iic.invoice_id
+        where ii.id is null
+          or im.id is null
+          or i.id is null
+          or ii.invoice_id is distinct from iic.invoice_id
+          or ii.inventory_item_id is distinct from iic.inventory_item_id
+          or ii.quantity is distinct from iic.quantity
+          or im.invoice_id is distinct from iic.invoice_id
+          or im.inventory_item_id is distinct from iic.inventory_item_id
+          or im.quantity is distinct from iic.quantity
+          or im.unit_cost is distinct from iic.unit_cost
+          or im.movement_type <> 'issue'
+          or i.status not in ('sent', 'partially_paid', 'paid')
+      ) as invoice_cost_mismatches,
+      (
+        select count(*)::integer
+        from public.inventory_movements reversal
+        left join public.inventory_movements original
+          on original.id = reversal.reverses_movement_id
+        where reversal.invoice_id is not null
+          and reversal.movement_type = 'return_from_project'
+          and (
+            original.id is null
+            or original.movement_type <> 'issue'
+            or original.invoice_id is distinct from reversal.invoice_id
+            or original.inventory_item_id is distinct from reversal.inventory_item_id
+            or original.quantity is distinct from reversal.quantity
+            or original.unit_cost is distinct from reversal.unit_cost
+          )
+      ) as invoice_stock_return_mismatches
   `);
 
   const { rows: migrationTableRows } = await client.query(`
@@ -559,6 +633,12 @@ try {
   );
   const missingMaterialEntryColumns = expectedMaterialEntryColumns.filter(
     (name) => !materialEntryColumns.includes(name),
+  );
+  const missingInvoiceItemColumns = expectedInvoiceItemColumns.filter(
+    (name) => !invoiceItemColumns.includes(name),
+  );
+  const missingInventoryMovementColumns = expectedInventoryMovementColumns.filter(
+    (name) => !inventoryMovementColumns.includes(name),
   );
   const missingRoles = expectedRoles.filter((name) => !roles.includes(name));
   const triggerEvents = triggerRows.map(({ event_manipulation }) => event_manipulation);
@@ -604,6 +684,7 @@ try {
     "reverse_inventory_issue",
     "protect_purchase_order_fields",
     "validate_inventory_material_entry",
+    "validate_invoice_inventory_movement",
   ].every((name) => inventoryFunctions.includes(name));
   const billingFunctions = billingFunctionRows.map(({ proname }) => proname);
   const billingWorkflowFunctions = [
@@ -620,6 +701,9 @@ try {
     "billing_project_directory",
     "billing_estimate_directory",
     "project_profitability",
+    "validate_invoice_inventory_item",
+    "validate_invoice_item_cost",
+    "protect_invoice_item_costs",
   ].every((name) => billingFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
@@ -652,6 +736,7 @@ try {
   const billingIntegrity = billingIntegrityRows[0] ?? {
     invoices: 0,
     invoice_items: 0,
+    invoice_item_costs: 0,
     invoice_payments: 0,
     project_financial_settings: 0,
     invoice_total_mismatches: 0,
@@ -660,6 +745,9 @@ try {
     invoice_status_mismatches: 0,
     source_estimate_mismatches: 0,
     status_timestamp_mismatches: 0,
+    stock_line_allocation_mismatches: 0,
+    invoice_cost_mismatches: 0,
+    invoice_stock_return_mismatches: 0,
   };
   const ok =
     missingTables.length === 0 &&
@@ -669,6 +757,8 @@ try {
     exposedClientContactColumns.length === 0 &&
     missingClientContactColumns.length === 0 &&
     missingMaterialEntryColumns.length === 0 &&
+    missingInvoiceItemColumns.length === 0 &&
+    missingInventoryMovementColumns.length === 0 &&
     clientContactPolicies &&
     clientContactRls &&
     missingRoles.length === 0 &&
@@ -700,6 +790,9 @@ try {
     billingIntegrity.invoice_status_mismatches === 0 &&
     billingIntegrity.source_estimate_mismatches === 0 &&
     billingIntegrity.status_timestamp_mismatches === 0 &&
+    billingIntegrity.stock_line_allocation_mismatches === 0 &&
+    billingIntegrity.invoice_cost_mismatches === 0 &&
+    billingIntegrity.invoice_stock_return_mismatches === 0 &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -732,12 +825,14 @@ try {
     },
     inventory: {
       missingMaterialEntryColumns,
+      missingInventoryMovementColumns,
       inventoryPolicies,
       inventoryRls,
       inventoryWorkflowFunctions,
       inventoryIntegrity,
     },
     billing: {
+      missingInvoiceItemColumns,
       billingPolicies,
       billingRls,
       billingWorkflowFunctions,

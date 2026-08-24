@@ -323,6 +323,7 @@ export interface InventoryMovement {
   purchase_order_item_id: string | null;
   project_id: string | null;
   work_order_id: string | null;
+  invoice_id: string | null;
   reverses_movement_id: string | null;
   note: string | null;
   occurred_at: string;
@@ -374,6 +375,7 @@ export interface Invoice {
 export interface InvoiceItem {
   id: string;
   invoice_id: string;
+  inventory_item_id: string | null;
   item_type: EstimateItemType;
   description: string;
   quantity: number;
@@ -381,6 +383,17 @@ export interface InvoiceItem {
   unit_price: number;
   line_total: number;
   sort_order: number;
+  created_at: string;
+}
+
+export interface InvoiceItemCost {
+  invoice_item_id: string;
+  invoice_id: string;
+  inventory_item_id: string;
+  inventory_movement_id: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
   created_at: string;
 }
 

@@ -70,7 +70,7 @@ export default async function ProjectProfitabilityPage({
               <dd className="font-mono text-ink">{formatCad(profitability.labor_cost)}</dd>
             </div>
             <div className="flex justify-between gap-4 border-b border-rule pb-3">
-              <dt className="text-ink">Materials consumed</dt>
+              <dt className="text-ink">Materials & direct parts COGS</dt>
               <dd className="font-mono text-ink">{formatCad(profitability.material_cost)}</dd>
             </div>
             <div className="flex justify-between gap-4 border-b border-rule pb-3">
@@ -87,7 +87,8 @@ export default async function ProjectProfitabilityPage({
           <h3 className="font-display text-lg font-medium text-ink">How this is calculated</h3>
           <p className="mt-3">Revenue includes Sent, Partially paid, and Paid invoices before sales tax.</p>
           <p className="mt-3">Labor uses approved time entries multiplied by the internal blended cost rate below.</p>
-          <p className="mt-3">Materials exclude reversed warehouse issues. Margin is operational gross margin, not final accounting profit.</p>
+          <p className="mt-3">Materials exclude reversed warehouse issues and include COGS captured when stock-linked invoice lines are sent.</p>
+          <p className="mt-3">Margin is operational gross margin, not final accounting profit.</p>
         </aside>
       </div>
 

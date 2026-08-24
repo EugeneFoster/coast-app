@@ -219,11 +219,30 @@ export async function addInvoiceItemAction(
 ): Promise<BillingActionState> {
   await requireBillingManager();
   if (!validUuid(invoiceId)) return { status: "error", message: "Invalid invoice." };
-  const itemType = clean(formData, "item_type");
-  const description = clean(formData, "description");
+  let itemType = clean(formData, "item_type");
+  let description = clean(formData, "description");
   const quantity = requiredNumber(formData, "quantity");
-  const unit = clean(formData, "unit");
+  let unit = clean(formData, "unit");
   const unitPrice = requiredNumber(formData, "unit_price");
+  const inventoryItemId = nullable(formData, "inventory_item_id");
+  if (inventoryItemId && !validUuid(inventoryItemId)) {
+    return { status: "error", message: "Select a valid stock item." };
+  }
+
+  const supabase = await createClient();
+  if (inventoryItemId) {
+    const { data: inventoryItem, error: inventoryError } = await supabase
+      .from("inventory_items")
+      .select("id, sku, name, unit, active")
+      .eq("id", inventoryItemId)
+      .maybeSingle();
+    if (inventoryError || !inventoryItem?.active) {
+      return { status: "error", message: "Active stock item not found." };
+    }
+    itemType = "part";
+    description = description || `${inventoryItem.sku} · ${inventoryItem.name}`;
+    unit = inventoryItem.unit;
+  }
   if (!isEstimateItemType(itemType)) {
     return { status: "error", message: "Select a valid line type." };
   }
@@ -237,7 +256,6 @@ export async function addInvoiceItemAction(
     return { status: "error", message: "Unit price cannot be negative." };
   }
 
-  const supabase = await createClient();
   const { data: invoice } = await supabase
     .from("invoices")
     .select("id, status, project_id")
@@ -255,6 +273,7 @@ export async function addInvoiceItemAction(
     .maybeSingle();
   const { error } = await supabase.from("invoice_items").insert({
     invoice_id: invoiceId,
+    inventory_item_id: inventoryItemId,
     item_type: itemType,
     description,
     quantity,
@@ -290,19 +309,34 @@ export async function deleteInvoiceItemAction(invoiceId: string, itemId: string)
 
 export async function updateInvoiceStatusAction(
   invoiceId: string,
-  nextStatus: string,
-) {
+  _previous: BillingActionState,
+  formData: FormData,
+): Promise<BillingActionState> {
   await requireBillingManager();
+  const nextStatus = clean(formData, "next_status");
   if (!validUuid(invoiceId) || !isInvoiceStatus(nextStatus)) {
-    throw new Error("Invalid invoice status.");
+    return { status: "error", message: "Invalid invoice status." };
   }
   const supabase = await createClient();
-  const { data: invoice } = await supabase
-    .from("invoices")
-    .select("id, status, project_id")
-    .eq("id", invoiceId)
-    .maybeSingle();
-  if (!invoice) throw new Error("Invoice not found.");
+  const [invoiceResult, linesResult] = await Promise.all([
+    supabase
+      .from("invoices")
+      .select("id, status, project_id")
+      .eq("id", invoiceId)
+      .maybeSingle(),
+    supabase
+      .from("invoice_items")
+      .select("inventory_item_id")
+      .eq("invoice_id", invoiceId)
+      .not("inventory_item_id", "is", null),
+  ]);
+  const invoice = invoiceResult.data;
+  if (invoiceResult.error || !invoice) {
+    return { status: "error", message: "Invoice not found." };
+  }
+  if (linesResult.error) {
+    return { status: "error", message: linesResult.error.message };
+  }
   const allowed: Record<string, string[]> = {
     draft: ["sent", "void"],
     sent: ["void"],
@@ -311,14 +345,40 @@ export async function updateInvoiceStatusAction(
     void: ["draft"],
   };
   if (!allowed[invoice.status]?.includes(nextStatus)) {
-    throw new Error(`Invoice cannot move from ${invoice.status} to ${nextStatus}.`);
+    return {
+      status: "error",
+      message: `Invoice cannot move from ${invoice.status} to ${nextStatus}.`,
+    };
   }
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("invoices")
     .update({ status: nextStatus })
-    .eq("id", invoiceId);
-  if (error) throw new Error(error.message);
+    .eq("id", invoiceId)
+    .eq("status", invoice.status)
+    .select("id")
+    .maybeSingle();
+  if (error || !updated) {
+    return {
+      status: "error",
+      message: error?.message ?? "Invoice status changed before this request completed.",
+    };
+  }
   revalidateBilling(invoiceId, invoice.project_id);
+  revalidatePath("/inventory");
+  for (const line of linesResult.data ?? []) {
+    if (line.inventory_item_id) {
+      revalidatePath(`/inventory/items/${line.inventory_item_id}`);
+    }
+  }
+  const messages: Record<string, string> = {
+    sent: "Invoice marked Sent. Linked stock was issued.",
+    void: "Invoice voided. Any linked stock was returned.",
+    draft: "Invoice reopened as Draft.",
+  };
+  return {
+    status: "success",
+    message: messages[nextStatus] ?? "Invoice status updated.",
+  };
 }
 
 export async function recordInvoicePaymentAction(

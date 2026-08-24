@@ -4,22 +4,25 @@ import { InvoiceDetailsForm } from "@/components/invoice-details-form";
 import { InvoiceItemForm } from "@/components/invoice-item-form";
 import { InvoicePaymentForm } from "@/components/invoice-payment-form";
 import { InvoicePrintButton } from "@/components/invoice-print-button";
+import { InvoiceStatusActions } from "@/components/invoice-status-actions";
 import { PaymentReversalForm } from "@/components/payment-reversal-form";
-import {
-  deleteInvoiceItemAction,
-  updateInvoiceStatusAction,
-} from "@/lib/actions/billing";
+import { deleteInvoiceItemAction } from "@/lib/actions/billing";
 import { requireBillingViewer } from "@/lib/auth";
 import {
   invoicePaymentMethodLabel,
   invoicePaymentTypeLabel,
   invoiceStatusLabel,
 } from "@/lib/billing";
-import { getBillingInvoiceDetail } from "@/lib/billing-data";
+import {
+  getBillingInventoryOptions,
+  getBillingInvoiceDetail,
+  getInvoiceItemCosts,
+} from "@/lib/billing-data";
 import {
   canManageBilling,
   canViewProfitability,
 } from "@/lib/employee-roles";
+import { formatQuantity } from "@/lib/inventory";
 import { ESTIMATE_ITEM_TYPES, formatCad, formatShortDate } from "@/lib/sales";
 
 const UUID_RE =
@@ -47,6 +50,28 @@ export default async function InvoicePage({
   const { invoice, customer, contact, project, sourceEstimate, items, payments } = detail;
   const canManage = canManageBilling(profile.role);
   const editableDraft = canManage && invoice.status === "draft";
+  const canSeeProfitability = canViewProfitability(profile.role);
+  const [inventoryItems, itemCosts] = await Promise.all([
+    editableDraft ? getBillingInventoryOptions() : Promise.resolve([]),
+    canSeeProfitability ? getInvoiceItemCosts(invoice.id) : Promise.resolve([]),
+  ]);
+  const costsByItem = new Map(
+    itemCosts.map((cost) => [cost.invoice_item_id, cost]),
+  );
+  const stockLines = items.filter((item) => item.inventory_item_id);
+  const hasStockLines = stockLines.length > 0;
+  const partsRevenue = stockLines.reduce(
+    (total, item) => total + Number(item.line_total),
+    0,
+  );
+  const partsCogs = itemCosts.reduce(
+    (total, cost) => total + Number(cost.total_cost),
+    0,
+  );
+  const partsGrossProfit = partsRevenue - partsCogs;
+  const partsMargin = partsRevenue > 0
+    ? (partsGrossProfit * 100) / partsRevenue
+    : null;
   const canTakePayment =
     canManage &&
     (invoice.status === "sent" || invoice.status === "partially_paid") &&
@@ -132,7 +157,25 @@ export default async function InvoicePage({
           {items.map((item) => (
             <div key={item.id} className="grid gap-2 border-b border-rule px-4 py-3 text-sm last:border-b-0 lg:grid-cols-[8rem_1fr_6rem_6rem_8rem_8rem_3rem] lg:items-center lg:gap-3">
               <span className="text-xs text-graph">{ESTIMATE_ITEM_TYPES.find(({ value }) => value === item.item_type)?.label ?? item.item_type}</span>
-              <span className="text-ink">{item.description}</span>
+              <span className="text-ink">
+                {item.description}
+                {item.inventory_item && (
+                  <span className="mt-1 block text-xs text-graph">
+                    <Link
+                      href={`/inventory/items/${item.inventory_item.id}`}
+                      className="font-mono text-ink hover:text-weld"
+                    >
+                      {item.inventory_item.sku}
+                    </Link>
+                    {invoice.status === "draft" && (
+                      <> · {formatQuantity(item.inventory_item.quantity_on_hand, item.inventory_item.unit)} available</>
+                    )}
+                    {costsByItem.get(item.id) && (
+                      <> · COGS {formatCad(costsByItem.get(item.id)?.total_cost ?? 0)}</>
+                    )}
+                  </span>
+                )}
+              </span>
               <span className="font-mono text-xs text-graph">{item.quantity}</span>
               <span className="text-xs text-graph">{item.unit}</span>
               <span className="font-mono text-xs text-ink">{formatCad(item.unit_price)}</span>
@@ -146,8 +189,36 @@ export default async function InvoicePage({
           ))}
           {items.length === 0 && <p className="px-4 py-10 text-center text-sm text-graph">No line items yet.</p>}
         </div>
-        {editableDraft && <div className="mt-4"><InvoiceItemForm invoiceId={invoice.id} /></div>}
+        {editableDraft && (
+          <div className="mt-4">
+            <InvoiceItemForm
+              invoiceId={invoice.id}
+              inventoryItems={inventoryItems}
+            />
+          </div>
+        )}
       </section>
+
+      {canSeeProfitability && hasStockLines && invoice.status !== "void" && (
+        <section className="print-hidden mt-6 rounded border border-rule bg-paper p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h3 className="font-display text-lg font-medium text-ink">Direct parts margin</h3>
+              <p className="mt-1 text-xs text-graph">Before invoice-level discount and sales tax.</p>
+            </div>
+            {itemCosts.length === 0 && invoice.status === "draft" && (
+              <span className="rounded border border-rule px-3 py-1 text-xs text-graph">
+                COGS locks when sent
+              </span>
+            )}
+          </div>
+          <dl className="mt-4 grid gap-4 sm:grid-cols-3">
+            <div><dt className="text-xs text-graph">Parts revenue</dt><dd className="mt-1 font-mono text-lg text-ink">{formatCad(partsRevenue)}</dd></div>
+            <div><dt className="text-xs text-graph">Recorded COGS</dt><dd className="mt-1 font-mono text-lg text-ink">{itemCosts.length > 0 ? formatCad(partsCogs) : "Pending"}</dd></div>
+            <div><dt className="text-xs text-graph">Gross profit</dt><dd className="mt-1 font-mono text-lg text-ink">{itemCosts.length > 0 ? `${formatCad(partsGrossProfit)} · ${partsMargin?.toFixed(2) ?? "0.00"}%` : "Pending"}</dd></div>
+          </dl>
+        </section>
+      )}
 
       <section className="mt-8 ml-auto max-w-md rounded border border-rule bg-paper p-5">
         <dl className="space-y-3 text-sm">
@@ -173,7 +244,7 @@ export default async function InvoicePage({
             <h3 className="font-display text-xl font-medium text-ink">Payment ledger</h3>
             <p className="mt-1 text-sm text-graph">Recorded entries remain visible after reversal.</p>
           </div>
-          {project && canViewProfitability(profile.role) && (
+          {project && canSeeProfitability && (
             <Link href={`/billing/projects/${project.id}`} className="btn-secondary px-4 py-2 text-sm">Project profitability</Link>
           )}
         </div>
@@ -210,28 +281,12 @@ export default async function InvoicePage({
       </section>
 
       {canManage && (
-        <section className="print-hidden mt-10 flex flex-wrap gap-3 border-t border-rule pt-6">
-          {invoice.status === "draft" && (
-            <>
-              <form action={updateInvoiceStatusAction.bind(null, invoice.id, "sent")}>
-                <button type="submit" className="btn-primary px-4 py-2 text-sm">Mark sent</button>
-              </form>
-              <form action={updateInvoiceStatusAction.bind(null, invoice.id, "void")}>
-                <button type="submit" className="btn-secondary px-4 py-2 text-sm">Void draft</button>
-              </form>
-            </>
-          )}
-          {invoice.status === "sent" && Number(invoice.amount_paid) === 0 && (
-            <form action={updateInvoiceStatusAction.bind(null, invoice.id, "void")}>
-              <button type="submit" className="btn-secondary px-4 py-2 text-sm">Void unpaid invoice</button>
-            </form>
-          )}
-          {invoice.status === "void" && (
-            <form action={updateInvoiceStatusAction.bind(null, invoice.id, "draft")}>
-              <button type="submit" className="btn-secondary px-4 py-2 text-sm">Reopen as draft</button>
-            </form>
-          )}
-        </section>
+        <InvoiceStatusActions
+          invoiceId={invoice.id}
+          status={invoice.status}
+          amountPaid={Number(invoice.amount_paid)}
+          hasStockLines={hasStockLines}
+        />
       )}
     </main>
   );
