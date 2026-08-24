@@ -130,6 +130,20 @@ export function canViewProfitability(role: UserRole) {
   return role === "owner" || role === "project_manager" || role === "accounting";
 }
 
+export function canManageCounterSales(role: UserRole) {
+  return (
+    role === "owner" ||
+    role === "project_manager" ||
+    role === "sales" ||
+    role === "parts" ||
+    role === "accounting"
+  );
+}
+
+export function canViewCounterSales(role: UserRole) {
+  return canManageCounterSales(role);
+}
+
 export function canManageProjectFinancials(role: UserRole) {
   return role === "owner" || role === "accounting";
 }

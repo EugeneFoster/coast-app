@@ -324,6 +324,7 @@ export interface InventoryMovement {
   project_id: string | null;
   work_order_id: string | null;
   invoice_id: string | null;
+  counter_sale_id: string | null;
   reverses_movement_id: string | null;
   note: string | null;
   occurred_at: string;
@@ -412,6 +413,55 @@ export interface InvoicePayment {
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export type CounterSaleStatus = "completed" | "void";
+
+export interface CounterSale {
+  id: string;
+  sale_number: string;
+  client_id: string | null;
+  customer_name: string;
+  status: CounterSaleStatus;
+  payment_method: InvoicePaymentMethod;
+  payment_reference: string | null;
+  subtotal: number;
+  tax_rate_percent: number;
+  tax_amount: number;
+  total: number;
+  completed_at: string;
+  voided_at: string | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CounterSaleItem {
+  id: string;
+  counter_sale_id: string;
+  inventory_item_id: string;
+  sku: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  line_total: number;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface CounterSaleItemCost {
+  counter_sale_item_id: string;
+  counter_sale_id: string;
+  inventory_item_id: string;
+  issue_movement_id: string;
+  return_movement_id: string | null;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  created_at: string;
 }
 
 export interface ProjectFinancialSettings {

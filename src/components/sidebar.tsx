@@ -6,6 +6,7 @@ import type { Profile } from "@/lib/types";
 import { signOut } from "@/lib/actions/session";
 import {
   canViewBilling,
+  canViewCounterSales,
   canViewInventory,
   canViewSales,
   userRoleLabel,
@@ -18,12 +19,14 @@ const navItems: Array<{
   salesOnly?: boolean;
   inventoryOnly?: boolean;
   billingOnly?: boolean;
+  counterSalesOnly?: boolean;
 }> = [
   { href: "/projects", label: "Projects" },
   { href: "/work-orders", label: "Work orders" },
   { href: "/inventory", label: "Inventory", inventoryOnly: true },
   { href: "/sales", label: "Sales CRM", salesOnly: true },
   { href: "/billing", label: "Billing", billingOnly: true },
+  { href: "/counter-sales", label: "Counter sales", counterSalesOnly: true },
   { href: "/chat", label: "Chat" },
   { href: "/library", label: "Library" },
   { href: "/archive", label: "Archive" },
@@ -70,7 +73,8 @@ export function Sidebar({
               (!item.adminOnly || admin) &&
               (!item.salesOnly || canViewSales(profile.role)) &&
               (!item.inventoryOnly || canViewInventory(profile.role)) &&
-              (!item.billingOnly || canViewBilling(profile.role)),
+              (!item.billingOnly || canViewBilling(profile.role)) &&
+              (!item.counterSalesOnly || canViewCounterSales(profile.role)),
           )
           .map((item) => {
             const active =

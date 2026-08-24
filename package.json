@@ -16,6 +16,7 @@
     "db:check-inventory-migration": "node scripts/check-inventory-migration.mjs",
     "db:check-billing-migration": "node scripts/check-billing-migration.mjs",
     "db:check-parts-sales-migration": "node scripts/check-parts-sales-migration.mjs",
+    "db:check-counter-sales-migration": "node scripts/check-counter-sales-migration.mjs",
     "db:verify": "node scripts/verify-production-schema.mjs"
   },
   "dependencies": {
