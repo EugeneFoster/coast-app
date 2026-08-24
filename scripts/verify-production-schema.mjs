@@ -9,6 +9,9 @@ const expectedTables = [
   "estimate_items",
   "estimates",
   "gallery_items",
+  "invoice_items",
+  "invoice_payments",
+  "invoices",
   "inventory_items",
   "inventory_movements",
   "material_entries",
@@ -16,6 +19,7 @@ const expectedTables = [
   "markup_photos",
   "profiles",
   "project_members",
+  "project_financial_settings",
   "projects",
   "opportunities",
   "purchase_order_items",
@@ -148,6 +152,21 @@ try {
   const inventoryPolicies = inventoryPolicyNames.every((policy) =>
     policyKeys.includes(policy),
   );
+  const billingPolicyNames = [
+    "public.invoices.invoices_view",
+    "public.invoices.invoices_insert",
+    "public.invoices.invoices_update",
+    "public.invoice_items.invoice_items_view",
+    "public.invoice_items.invoice_items_insert",
+    "public.invoice_items.invoice_items_update",
+    "public.invoice_items.invoice_items_delete",
+    "public.invoice_payments.invoice_payments_view",
+    "public.project_financial_settings.project_financial_settings_view",
+    "public.project_financial_settings.project_financial_settings_manage",
+  ];
+  const billingPolicies = billingPolicyNames.every((policy) =>
+    policyKeys.includes(policy),
+  );
   const projectAccountingPolicyAbsent = !policyKeys.includes(
     "public.projects.projects_operations_accounting_read",
   );
@@ -178,6 +197,20 @@ try {
   const inventoryRls =
     inventorySecurityRows.length === 5 &&
     inventorySecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
+
+  const { rows: billingSecurityRows } = await client.query(`
+    select relname, relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in (
+        'invoices', 'invoice_items', 'invoice_payments',
+        'project_financial_settings'
+      )
+  `);
+  const billingRls =
+    billingSecurityRows.length === 4 &&
+    billingSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
 
   const { rows: profileColumnRows } = await client.query(`
     select column_name
@@ -286,6 +319,28 @@ try {
         'reverse_inventory_issue',
         'protect_purchase_order_fields',
         'validate_inventory_material_entry'
+      )
+  `);
+
+  const { rows: billingFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'can_manage_billing',
+        'can_view_billing',
+        'can_view_profitability',
+        'can_manage_project_financials',
+        'calculate_invoice_totals',
+        'recalculate_invoice_subtotal',
+        'enforce_invoice_status_transition',
+        'create_invoice_from_estimate',
+        'record_invoice_payment',
+        'reverse_invoice_payment',
+        'billing_project_directory',
+        'billing_estimate_directory',
+        'project_profitability'
       )
   `);
 
@@ -402,6 +457,81 @@ try {
       ) as invalid_reversals
   `);
 
+  const { rows: billingIntegrityRows } = await client.query(`
+    select
+      (select count(*)::integer from public.invoices) as invoices,
+      (select count(*)::integer from public.invoice_items) as invoice_items,
+      (select count(*)::integer from public.invoice_payments) as invoice_payments,
+      (select count(*)::integer from public.project_financial_settings)
+        as project_financial_settings,
+      (
+        select count(*)::integer
+        from public.invoices i
+        where i.subtotal is distinct from coalesce((
+          select sum(ii.line_total)
+          from public.invoice_items ii
+          where ii.invoice_id = i.id
+        ), 0)
+          or i.tax_amount is distinct from round(
+            (i.subtotal - i.discount_amount) * i.tax_rate_percent / 100,
+            2
+          )
+          or i.total is distinct from round(
+            i.subtotal - i.discount_amount + i.tax_amount,
+            2
+          )
+          or i.balance_due is distinct from case
+            when i.status = 'void' then 0
+            else round(i.total - i.amount_paid, 2)
+          end
+      ) as invoice_total_mismatches,
+      (
+        select count(*)::integer
+        from public.invoices i
+        where i.amount_paid is distinct from coalesce((
+          select sum(ip.amount)
+          from public.invoice_payments ip
+          where ip.invoice_id = i.id and ip.reversed_at is null
+        ), 0)
+      ) as payment_ledger_mismatches,
+      (
+        select count(*)::integer
+        from public.invoices i
+        join public.projects p on p.id = i.project_id
+        where i.client_id is distinct from p.client_id
+      ) as project_customer_mismatches,
+      (
+        select count(*)::integer
+        from public.invoices i
+        where (i.status = 'paid' and (i.total <= 0 or i.amount_paid <> i.total))
+          or (i.status = 'partially_paid'
+              and (i.amount_paid <= 0 or i.amount_paid >= i.total))
+          or (i.status in ('draft', 'sent', 'void') and i.amount_paid <> 0)
+      ) as invoice_status_mismatches,
+      (
+        select count(*)::integer
+        from public.invoices i
+        left join public.estimates e on e.id = i.source_estimate_id
+        left join public.opportunities o on o.id = e.opportunity_id
+        where i.source_estimate_id is not null
+          and (
+            e.id is null
+            or e.status <> 'accepted'
+            or e.client_id is distinct from i.client_id
+            or o.project_id is distinct from i.project_id
+          )
+      ) as source_estimate_mismatches,
+      (
+        select count(*)::integer
+        from public.invoices i
+        where (i.status in ('sent', 'partially_paid', 'paid') and i.sent_at is null)
+          or (i.status = 'paid' and i.paid_at is null)
+          or (i.status <> 'paid' and i.paid_at is not null)
+          or (i.status = 'void' and i.voided_at is null)
+          or (i.status <> 'void' and i.voided_at is not null)
+      ) as status_timestamp_mismatches
+  `);
+
   const { rows: migrationTableRows } = await client.query(`
     select to_regclass('supabase_migrations.schema_migrations') is not null as exists
   `);
@@ -475,6 +605,22 @@ try {
     "protect_purchase_order_fields",
     "validate_inventory_material_entry",
   ].every((name) => inventoryFunctions.includes(name));
+  const billingFunctions = billingFunctionRows.map(({ proname }) => proname);
+  const billingWorkflowFunctions = [
+    "can_manage_billing",
+    "can_view_billing",
+    "can_view_profitability",
+    "can_manage_project_financials",
+    "calculate_invoice_totals",
+    "recalculate_invoice_subtotal",
+    "enforce_invoice_status_transition",
+    "create_invoice_from_estimate",
+    "record_invoice_payment",
+    "reverse_invoice_payment",
+    "billing_project_directory",
+    "billing_estimate_directory",
+    "project_profitability",
+  ].every((name) => billingFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
     clients: 0,
@@ -502,6 +648,18 @@ try {
     movement_project_mismatches: 0,
     invalid_material_links: 0,
     invalid_reversals: 0,
+  };
+  const billingIntegrity = billingIntegrityRows[0] ?? {
+    invoices: 0,
+    invoice_items: 0,
+    invoice_payments: 0,
+    project_financial_settings: 0,
+    invoice_total_mismatches: 0,
+    payment_ledger_mismatches: 0,
+    project_customer_mismatches: 0,
+    invoice_status_mismatches: 0,
+    source_estimate_mismatches: 0,
+    status_timestamp_mismatches: 0,
   };
   const ok =
     missingTables.length === 0 &&
@@ -533,6 +691,15 @@ try {
     inventoryIntegrity.movement_project_mismatches === 0 &&
     inventoryIntegrity.invalid_material_links === 0 &&
     inventoryIntegrity.invalid_reversals === 0 &&
+    billingPolicies &&
+    billingRls &&
+    billingWorkflowFunctions &&
+    billingIntegrity.invoice_total_mismatches === 0 &&
+    billingIntegrity.payment_ledger_mismatches === 0 &&
+    billingIntegrity.project_customer_mismatches === 0 &&
+    billingIntegrity.invoice_status_mismatches === 0 &&
+    billingIntegrity.source_estimate_mismatches === 0 &&
+    billingIntegrity.status_timestamp_mismatches === 0 &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -569,6 +736,12 @@ try {
       inventoryRls,
       inventoryWorkflowFunctions,
       inventoryIntegrity,
+    },
+    billing: {
+      billingPolicies,
+      billingRls,
+      billingWorkflowFunctions,
+      billingIntegrity,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,
