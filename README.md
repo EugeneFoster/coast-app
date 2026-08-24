@@ -199,6 +199,11 @@ to a work order atomically reduces stock and records project material cost. A
 warehouse issue cannot be edited or deleted; reversing it creates a matching return
 movement and removes the line from the active work-order cost total.
 
+Invoice part lines can also be linked directly to an active SKU. Stock remains
+unchanged while the invoice is a draft, is issued atomically when the invoice is
+marked Sent, and is returned through a matching immutable ledger movement when an
+unpaid invoice is voided. Insufficient stock leaves the whole invoice in Draft.
+
 Validate the P4 migration, ledger immutability, partial receiving, work-order issue
 and reversal, inventory roles, and totals inside a rolled-back transaction:
 
@@ -220,12 +225,21 @@ status transitions are blocked in Postgres.
 
 Owners, project managers, and accounting can review project profitability:
 pre-tax invoiced revenue minus active material usage, logged labor hours at a
-configured internal blended cost rate, and project overhead. Only owners and
-accounting can edit the internal rate and overhead assumptions.
+configured internal blended cost rate, direct-parts COGS, and project overhead.
+Invoice-level direct-parts revenue, recorded COGS, gross profit, and margin are
+visible only to profitability roles. Only owners and accounting can edit the
+internal rate and overhead assumptions.
 
 Validate estimate-to-invoice conversion, totals, deposits, payments, reversals,
 profitability, and billing role boundaries inside a rolled-back transaction:
 
 ```bash
 railway run -- npm run db:check-billing-migration
+```
+
+Validate SKU-linked invoice lines, atomic stock issue, insufficient-stock
+rollback, COGS privacy, void returns, and resend behavior:
+
+```bash
+railway run -- npm run db:check-parts-sales-migration
 ```

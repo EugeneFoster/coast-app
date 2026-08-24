@@ -177,7 +177,11 @@ export default async function InventoryItemPage({
                         {formatShortDate(movement.occurred_at)}
                       </td>
                       <td className="px-4 py-3 text-ink">
-                        {inventoryMovementLabel(movement.movement_type)}
+                        {movement.invoice_id
+                          ? movement.movement_type === "issue"
+                            ? "Sold"
+                            : "Sale return"
+                          : inventoryMovementLabel(movement.movement_type)}
                       </td>
                       <td
                         className={`px-4 py-3 text-right font-mono ${
@@ -191,7 +195,14 @@ export default async function InventoryItemPage({
                         {formatCad(movement.unit_cost)}
                       </td>
                       <td className="px-4 py-3 text-graph">
-                        {movement.work_order_id && movement.project_id ? (
+                        {movement.invoice_id ? (
+                          <Link
+                            href={`/billing/${movement.invoice_id}`}
+                            className="text-ink hover:text-weld"
+                          >
+                            Invoice →
+                          </Link>
+                        ) : movement.work_order_id && movement.project_id ? (
                           <Link
                             href={`/projects/${movement.project_id}/work-orders/${movement.work_order_id}`}
                             className="text-ink hover:text-weld"
@@ -203,7 +214,9 @@ export default async function InventoryItemPage({
                         ) : (
                           movement.note ?? "Adjustment"
                         )}
-                        {movement.note && movement.work_order_id ? ` · ${movement.note}` : ""}
+                        {movement.note && (movement.work_order_id || movement.invoice_id)
+                          ? ` · ${movement.note}`
+                          : ""}
                       </td>
                     </tr>
                   );

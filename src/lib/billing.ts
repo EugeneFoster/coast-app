@@ -9,6 +9,15 @@ export type BillingActionState = {
   message: string;
 };
 
+export type BillingInventoryOption = {
+  id: string;
+  sku: string;
+  name: string;
+  unit: string;
+  quantity_on_hand: number;
+  selling_price: number | null;
+};
+
 export const INITIAL_BILLING_ACTION_STATE: BillingActionState = {
   status: "idle",
   message: "",
