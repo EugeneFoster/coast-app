@@ -437,11 +437,14 @@ export async function deleteMaterialEntryAction(
   );
   const { data: entry } = await supabase
     .from("material_entries")
-    .select("id, entered_by")
+    .select("id, entered_by, inventory_movement_id")
     .eq("id", entryId)
     .eq("work_order_id", workOrderId)
     .maybeSingle();
   if (!entry) throw new Error("Material entry not found.");
+  if (entry.inventory_movement_id) {
+    throw new Error("Warehouse issues must be reversed through inventory.");
+  }
   if (!canManageOperations(profile.role) && entry.entered_by !== user.id) {
     throw new Error("You can only remove your own material entries.");
   }

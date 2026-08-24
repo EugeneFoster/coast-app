@@ -126,7 +126,9 @@ request; sign-in is a server action (`src/lib/actions/auth.ts`).
 |------|--------|
 | owner | Full access, including management of other owner accounts |
 | draftsperson / project_manager | Project and employee administration |
-| sales / parts / accounting | CRM roles prepared for the next workflow stages |
+| sales | Sales CRM management and inventory catalog visibility |
+| parts | Supplier, purchasing, stock, and project-issue management |
+| accounting | Read-only sales, operations, purchasing, and inventory totals |
 | welder / painter / mechanic / installer | Assigned project access |
 
 Employees are invited from **Settings → Employees**, where administrators assign
@@ -180,4 +182,25 @@ transaction:
 
 ```bash
 railway run -- npm run db:check-operations-migration
+```
+
+## Inventory & purchasing
+
+The **Inventory** workspace is available to parts staff, owners, project managers,
+sales, and accounting. Sales receives catalog access; accounting can review stock,
+suppliers, purchasing, and costs without making changes. Owners, project managers,
+and parts staff manage suppliers, SKUs, reorder points, prices, purchase orders,
+receipts, and stock adjustments.
+
+Inventory balances are derived through an immutable movement ledger. Purchase
+orders support partial receiving and update weighted average cost. Issuing an item
+to a work order atomically reduces stock and records project material cost. A
+warehouse issue cannot be edited or deleted; reversing it creates a matching return
+movement and removes the line from the active work-order cost total.
+
+Validate the P4 migration, ledger immutability, partial receiving, work-order issue
+and reversal, inventory roles, and totals inside a rolled-back transaction:
+
+```bash
+railway run -- npm run db:check-inventory-migration
 ```

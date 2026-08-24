@@ -9,6 +9,8 @@ const expectedTables = [
   "estimate_items",
   "estimates",
   "gallery_items",
+  "inventory_items",
+  "inventory_movements",
   "material_entries",
   "markup_comments",
   "markup_photos",
@@ -16,6 +18,9 @@ const expectedTables = [
   "project_members",
   "projects",
   "opportunities",
+  "purchase_order_items",
+  "purchase_orders",
+  "suppliers",
   "time_entries",
   "work_order_assignments",
   "work_orders",
@@ -50,6 +55,12 @@ const expectedClientContactColumns = [
   ...sensitiveClientColumns,
   "created_at",
   "updated_at",
+];
+const expectedMaterialEntryColumns = [
+  "inventory_item_id",
+  "inventory_movement_id",
+  "reversed_at",
+  "reversed_by",
 ];
 const expectedRoles = [
   "owner",
@@ -123,6 +134,20 @@ try {
   const operationsPolicies = operationsPolicyNames.every((policy) =>
     policyKeys.includes(policy),
   );
+  const inventoryPolicyNames = [
+    "public.suppliers.suppliers_view",
+    "public.suppliers.suppliers_manage",
+    "public.inventory_items.inventory_items_view",
+    "public.inventory_items.inventory_items_manage",
+    "public.purchase_orders.purchase_orders_view",
+    "public.purchase_orders.purchase_orders_manage",
+    "public.purchase_order_items.purchase_order_items_view",
+    "public.purchase_order_items.purchase_order_items_manage",
+    "public.inventory_movements.inventory_movements_view",
+  ];
+  const inventoryPolicies = inventoryPolicyNames.every((policy) =>
+    policyKeys.includes(policy),
+  );
   const projectAccountingPolicyAbsent = !policyKeys.includes(
     "public.projects.projects_operations_accounting_read",
   );
@@ -139,6 +164,20 @@ try {
   const operationsRls =
     operationsSecurityRows.length === 4 &&
     operationsSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
+
+  const { rows: inventorySecurityRows } = await client.query(`
+    select relname, relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in (
+        'suppliers', 'inventory_items', 'purchase_orders',
+        'purchase_order_items', 'inventory_movements'
+      )
+  `);
+  const inventoryRls =
+    inventorySecurityRows.length === 5 &&
+    inventorySecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
 
   const { rows: profileColumnRows } = await client.query(`
     select column_name
@@ -160,6 +199,15 @@ try {
     where table_schema = 'public' and table_name = 'client_contacts'
   `);
   const clientContactColumns = clientContactColumnRows.map(
+    ({ column_name }) => column_name,
+  );
+
+  const { rows: materialEntryColumnRows } = await client.query(`
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'material_entries'
+  `);
+  const materialEntryColumns = materialEntryColumnRows.map(
     ({ column_name }) => column_name,
   );
 
@@ -220,6 +268,27 @@ try {
       )
   `);
 
+  const { rows: inventoryFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'can_manage_inventory',
+        'can_view_inventory',
+        'can_view_purchasing',
+        'apply_inventory_movement',
+        'enforce_purchase_order_item_edit',
+        'enforce_purchase_order_status_transition',
+        'receive_purchase_order_item',
+        'adjust_inventory',
+        'issue_inventory_to_work_order',
+        'reverse_inventory_issue',
+        'protect_purchase_order_fields',
+        'validate_inventory_material_entry'
+      )
+  `);
+
   const { rows: mismatchRows } = await client.query(`
     select count(*)::integer as count
     from public.projects p
@@ -277,6 +346,62 @@ try {
       ) as invalid_assignments
   `);
 
+  const { rows: inventoryIntegrityRows } = await client.query(`
+    select
+      (select count(*)::integer from public.suppliers) as suppliers,
+      (select count(*)::integer from public.inventory_items) as inventory_items,
+      (select count(*)::integer from public.purchase_orders) as purchase_orders,
+      (select count(*)::integer from public.purchase_order_items) as purchase_order_items,
+      (select count(*)::integer from public.inventory_movements) as inventory_movements,
+      (
+        select count(*)::integer
+        from public.inventory_items
+        where quantity_on_hand < 0 or average_cost < 0
+      ) as invalid_stock_balances,
+      (
+        select count(*)::integer
+        from public.purchase_order_items
+        where quantity_received < 0 or quantity_received > quantity
+      ) as invalid_receipts,
+      (
+        select count(*)::integer
+        from public.purchase_orders po
+        where po.subtotal is distinct from coalesce((
+          select sum(poi.line_total)
+          from public.purchase_order_items poi
+          where poi.purchase_order_id = po.id
+        ), 0)
+      ) as purchase_order_total_mismatches,
+      (
+        select count(*)::integer
+        from public.inventory_movements im
+        join public.work_orders w on w.id = im.work_order_id
+        where im.project_id is distinct from w.project_id
+      ) as movement_project_mismatches,
+      (
+        select count(*)::integer
+        from public.material_entries m
+        left join public.inventory_movements im on im.id = m.inventory_movement_id
+        where (m.inventory_item_id is null) <> (m.inventory_movement_id is null)
+          or (m.inventory_movement_id is not null and (
+            im.id is null
+            or im.inventory_item_id is distinct from m.inventory_item_id
+            or im.work_order_id is distinct from m.work_order_id
+          ))
+      ) as invalid_material_links,
+      (
+        select count(*)::integer
+        from public.material_entries m
+        where m.reversed_at is not null
+          and not exists (
+            select 1
+            from public.inventory_movements reversal
+            where reversal.reverses_movement_id = m.inventory_movement_id
+              and reversal.movement_type = 'return_from_project'
+          )
+      ) as invalid_reversals
+  `);
+
   const { rows: migrationTableRows } = await client.query(`
     select to_regclass('supabase_migrations.schema_migrations') is not null as exists
   `);
@@ -301,6 +426,9 @@ try {
   );
   const missingClientContactColumns = expectedClientContactColumns.filter(
     (name) => !clientContactColumns.includes(name),
+  );
+  const missingMaterialEntryColumns = expectedMaterialEntryColumns.filter(
+    (name) => !materialEntryColumns.includes(name),
   );
   const missingRoles = expectedRoles.filter((name) => !roles.includes(name));
   const triggerEvents = triggerRows.map(({ event_manipulation }) => event_manipulation);
@@ -332,6 +460,21 @@ try {
     "enforce_work_order_status_transition",
     "validate_time_entry",
   ].every((name) => operationsFunctions.includes(name));
+  const inventoryFunctions = inventoryFunctionRows.map(({ proname }) => proname);
+  const inventoryWorkflowFunctions = [
+    "can_manage_inventory",
+    "can_view_inventory",
+    "can_view_purchasing",
+    "apply_inventory_movement",
+    "enforce_purchase_order_item_edit",
+    "enforce_purchase_order_status_transition",
+    "receive_purchase_order_item",
+    "adjust_inventory",
+    "issue_inventory_to_work_order",
+    "reverse_inventory_issue",
+    "protect_purchase_order_fields",
+    "validate_inventory_material_entry",
+  ].every((name) => inventoryFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
     clients: 0,
@@ -347,6 +490,19 @@ try {
     invalid_time_days: 0,
     invalid_assignments: 0,
   };
+  const inventoryIntegrity = inventoryIntegrityRows[0] ?? {
+    suppliers: 0,
+    inventory_items: 0,
+    purchase_orders: 0,
+    purchase_order_items: 0,
+    inventory_movements: 0,
+    invalid_stock_balances: 0,
+    invalid_receipts: 0,
+    purchase_order_total_mismatches: 0,
+    movement_project_mismatches: 0,
+    invalid_material_links: 0,
+    invalid_reversals: 0,
+  };
   const ok =
     missingTables.length === 0 &&
     missingBuckets.length === 0 &&
@@ -354,6 +510,7 @@ try {
     missingClientColumns.length === 0 &&
     exposedClientContactColumns.length === 0 &&
     missingClientContactColumns.length === 0 &&
+    missingMaterialEntryColumns.length === 0 &&
     clientContactPolicies &&
     clientContactRls &&
     missingRoles.length === 0 &&
@@ -367,6 +524,15 @@ try {
     operationsIntegrity.missing_project_members === 0 &&
     operationsIntegrity.invalid_time_days === 0 &&
     operationsIntegrity.invalid_assignments === 0 &&
+    inventoryPolicies &&
+    inventoryRls &&
+    inventoryWorkflowFunctions &&
+    inventoryIntegrity.invalid_stock_balances === 0 &&
+    inventoryIntegrity.invalid_receipts === 0 &&
+    inventoryIntegrity.purchase_order_total_mismatches === 0 &&
+    inventoryIntegrity.movement_project_mismatches === 0 &&
+    inventoryIntegrity.invalid_material_links === 0 &&
+    inventoryIntegrity.invalid_reversals === 0 &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -396,6 +562,13 @@ try {
       projectAccountingPolicyAbsent,
       operationsWorkflowFunctions,
       operationsIntegrity,
+    },
+    inventory: {
+      missingMaterialEntryColumns,
+      inventoryPolicies,
+      inventoryRls,
+      inventoryWorkflowFunctions,
+      inventoryIntegrity,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,

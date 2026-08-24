@@ -215,8 +215,118 @@ export interface MaterialEntry {
   unit_cost: number;
   line_total: number;
   entered_by: string;
+  inventory_item_id: string | null;
+  inventory_movement_id: string | null;
+  reversed_at: string | null;
+  reversed_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type InventoryCategory =
+  | "aluminum"
+  | "steel"
+  | "fastener"
+  | "paint"
+  | "mechanical"
+  | "electrical"
+  | "dock"
+  | "consumable"
+  | "safety"
+  | "part"
+  | "other";
+export type PurchaseOrderStatus =
+  | "draft"
+  | "ordered"
+  | "partially_received"
+  | "received"
+  | "cancelled";
+export type InventoryMovementType =
+  | "receipt"
+  | "issue"
+  | "adjustment_in"
+  | "adjustment_out"
+  | "return_from_project";
+
+export interface Supplier {
+  id: string;
+  name: string;
+  account_number: string | null;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  address: string | null;
+  notes: string | null;
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryItem {
+  id: string;
+  sku: string;
+  name: string;
+  description: string | null;
+  category: InventoryCategory;
+  unit: string;
+  quantity_on_hand: number;
+  average_cost: number;
+  selling_price: number | null;
+  reorder_point: number;
+  location: string | null;
+  preferred_supplier_id: string | null;
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  po_number: string;
+  supplier_id: string;
+  status: PurchaseOrderStatus;
+  order_date: string;
+  expected_date: string | null;
+  notes: string | null;
+  subtotal: number;
+  ordered_at: string | null;
+  received_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PurchaseOrderItem {
+  id: string;
+  purchase_order_id: string;
+  inventory_item_id: string;
+  supplier_sku: string | null;
+  description: string;
+  quantity: number;
+  quantity_received: number;
+  unit: string;
+  unit_cost: number;
+  line_total: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryMovement {
+  id: string;
+  inventory_item_id: string;
+  movement_type: InventoryMovementType;
+  quantity: number;
+  unit_cost: number;
+  purchase_order_item_id: string | null;
+  project_id: string | null;
+  work_order_id: string | null;
+  reverses_movement_id: string | null;
+  note: string | null;
+  occurred_at: string;
+  created_by: string;
 }
 
 export type StructureType = "dock" | "wharf" | "pontoon" | "ramp" | "other";
