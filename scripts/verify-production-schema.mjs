@@ -3,6 +3,9 @@ import { connectToSupabaseDatabase } from "./lib/supabase-db.mjs";
 const expectedTables = [
   "clients",
   "client_contacts",
+  "counter_sale_item_costs",
+  "counter_sale_items",
+  "counter_sales",
   "drawing_markups",
   "drawing_pages",
   "drawings",
@@ -68,7 +71,7 @@ const expectedMaterialEntryColumns = [
   "reversed_by",
 ];
 const expectedInvoiceItemColumns = ["inventory_item_id"];
-const expectedInventoryMovementColumns = ["invoice_id"];
+const expectedInventoryMovementColumns = ["invoice_id", "counter_sale_id"];
 const expectedRoles = [
   "owner",
   "project_manager",
@@ -171,6 +174,14 @@ try {
   const billingPolicies = billingPolicyNames.every((policy) =>
     policyKeys.includes(policy),
   );
+  const counterSalesPolicyNames = [
+    "public.counter_sales.counter_sales_view",
+    "public.counter_sale_items.counter_sale_items_view",
+    "public.counter_sale_item_costs.counter_sale_item_costs_profitability_view",
+  ];
+  const counterSalesPolicies = counterSalesPolicyNames.every((policy) =>
+    policyKeys.includes(policy),
+  );
   const projectAccountingPolicyAbsent = !policyKeys.includes(
     "public.projects.projects_operations_accounting_read",
   );
@@ -215,6 +226,19 @@ try {
   const billingRls =
     billingSecurityRows.length === 5 &&
     billingSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
+
+  const { rows: counterSalesSecurityRows } = await client.query(`
+    select relname, relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in (
+        'counter_sales', 'counter_sale_items', 'counter_sale_item_costs'
+      )
+  `);
+  const counterSalesRls =
+    counterSalesSecurityRows.length === 3 &&
+    counterSalesSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
 
   const { rows: profileColumnRows } = await client.query(`
     select column_name
@@ -367,6 +391,23 @@ try {
         'validate_invoice_inventory_item',
         'validate_invoice_item_cost',
         'protect_invoice_item_costs'
+      )
+  `);
+
+  const { rows: counterSalesFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'can_manage_counter_sales',
+        'can_view_counter_sales',
+        'counter_sale_customer_directory',
+        'complete_counter_sale',
+        'void_counter_sale',
+        'protect_counter_sale_record',
+        'validate_counter_sale_inventory_movement',
+        'validate_counter_sale_item_cost'
       )
   `);
 
@@ -606,6 +647,70 @@ try {
       ) as invoice_stock_return_mismatches
   `);
 
+  const { rows: counterSalesIntegrityRows } = await client.query(`
+    select
+      (select count(*)::integer from public.counter_sales) as counter_sales,
+      (select count(*)::integer from public.counter_sale_items) as counter_sale_items,
+      (select count(*)::integer from public.counter_sale_item_costs)
+        as counter_sale_item_costs,
+      (
+        select count(*)::integer
+        from public.counter_sales cs
+        where cs.tax_amount is distinct from round(
+          cs.subtotal * cs.tax_rate_percent / 100,
+          2
+        )
+          or cs.total is distinct from round(cs.subtotal + cs.tax_amount, 2)
+          or cs.subtotal is distinct from coalesce((
+            select sum(csi.line_total)
+            from public.counter_sale_items csi
+            where csi.counter_sale_id = cs.id
+          ), 0)
+      ) as counter_sale_total_mismatches,
+      (
+        select count(*)::integer
+        from public.counter_sale_items csi
+        left join public.counter_sale_item_costs csic
+          on csic.counter_sale_item_id = csi.id
+        where csic.counter_sale_item_id is null
+      ) as missing_counter_sale_costs,
+      (
+        select count(*)::integer
+        from public.counter_sale_item_costs csic
+        left join public.counter_sale_items csi
+          on csi.id = csic.counter_sale_item_id
+        left join public.counter_sales cs on cs.id = csic.counter_sale_id
+        left join public.inventory_movements issue
+          on issue.id = csic.issue_movement_id
+        left join public.inventory_movements return_movement
+          on return_movement.id = csic.return_movement_id
+        where csi.id is null
+          or cs.id is null
+          or csi.counter_sale_id is distinct from csic.counter_sale_id
+          or csi.inventory_item_id is distinct from csic.inventory_item_id
+          or csi.quantity is distinct from csic.quantity
+          or issue.id is null
+          or issue.movement_type <> 'issue'
+          or issue.counter_sale_id is distinct from csic.counter_sale_id
+          or issue.inventory_item_id is distinct from csic.inventory_item_id
+          or issue.quantity is distinct from csic.quantity
+          or issue.unit_cost is distinct from csic.unit_cost
+          or (cs.status = 'completed' and csic.return_movement_id is not null)
+          or (cs.status = 'void' and csic.return_movement_id is null)
+          or (
+            csic.return_movement_id is not null and (
+              return_movement.id is null
+              or return_movement.movement_type <> 'return_from_project'
+              or return_movement.counter_sale_id is distinct from csic.counter_sale_id
+              or return_movement.inventory_item_id is distinct from csic.inventory_item_id
+              or return_movement.quantity is distinct from csic.quantity
+              or return_movement.unit_cost is distinct from csic.unit_cost
+              or return_movement.reverses_movement_id is distinct from csic.issue_movement_id
+            )
+          )
+      ) as counter_sale_stock_mismatches
+  `);
+
   const { rows: migrationTableRows } = await client.query(`
     select to_regclass('supabase_migrations.schema_migrations') is not null as exists
   `);
@@ -705,6 +810,17 @@ try {
     "validate_invoice_item_cost",
     "protect_invoice_item_costs",
   ].every((name) => billingFunctions.includes(name));
+  const counterSalesFunctions = counterSalesFunctionRows.map(({ proname }) => proname);
+  const counterSalesWorkflowFunctions = [
+    "can_manage_counter_sales",
+    "can_view_counter_sales",
+    "counter_sale_customer_directory",
+    "complete_counter_sale",
+    "void_counter_sale",
+    "protect_counter_sale_record",
+    "validate_counter_sale_inventory_movement",
+    "validate_counter_sale_item_cost",
+  ].every((name) => counterSalesFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
     clients: 0,
@@ -748,6 +864,14 @@ try {
     stock_line_allocation_mismatches: 0,
     invoice_cost_mismatches: 0,
     invoice_stock_return_mismatches: 0,
+  };
+  const counterSalesIntegrity = counterSalesIntegrityRows[0] ?? {
+    counter_sales: 0,
+    counter_sale_items: 0,
+    counter_sale_item_costs: 0,
+    counter_sale_total_mismatches: 0,
+    missing_counter_sale_costs: 0,
+    counter_sale_stock_mismatches: 0,
   };
   const ok =
     missingTables.length === 0 &&
@@ -793,6 +917,12 @@ try {
     billingIntegrity.stock_line_allocation_mismatches === 0 &&
     billingIntegrity.invoice_cost_mismatches === 0 &&
     billingIntegrity.invoice_stock_return_mismatches === 0 &&
+    counterSalesPolicies &&
+    counterSalesRls &&
+    counterSalesWorkflowFunctions &&
+    counterSalesIntegrity.counter_sale_total_mismatches === 0 &&
+    counterSalesIntegrity.missing_counter_sale_costs === 0 &&
+    counterSalesIntegrity.counter_sale_stock_mismatches === 0 &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -837,6 +967,12 @@ try {
       billingRls,
       billingWorkflowFunctions,
       billingIntegrity,
+    },
+    counterSales: {
+      counterSalesPolicies,
+      counterSalesRls,
+      counterSalesWorkflowFunctions,
+      counterSalesIntegrity,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,

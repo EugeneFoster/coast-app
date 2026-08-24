@@ -12,6 +12,8 @@ import {
   canViewProfitability,
   canViewPurchasing,
   canViewSales,
+  canManageCounterSales,
+  canViewCounterSales,
 } from "@/lib/employee-roles";
 
 function shouldLogAuthError(error: unknown) {
@@ -141,5 +143,17 @@ export async function requireBillingManager() {
 export async function requireProfitabilityViewer() {
   const { user, profile } = await requireUser();
   if (!canViewProfitability(profile.role)) redirect("/billing");
+  return { user, profile };
+}
+
+export async function requireCounterSalesViewer() {
+  const { user, profile } = await requireUser();
+  if (!canViewCounterSales(profile.role)) redirect("/projects");
+  return { user, profile };
+}
+
+export async function requireCounterSalesManager() {
+  const { user, profile } = await requireUser();
+  if (!canManageCounterSales(profile.role)) redirect("/projects");
   return { user, profile };
 }

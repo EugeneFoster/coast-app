@@ -243,3 +243,26 @@ rollback, COGS privacy, void returns, and resend behavior:
 ```bash
 railway run -- npm run db:check-parts-sales-migration
 ```
+
+### Counter sales
+
+`/counter-sales` is the paid parts-counter workflow for owners, project
+managers, sales, parts/warehouse, and accounting. A cashier can search or scan
+an exact SKU, adjust quantity and selling price, select an existing CRM customer
+or a walk-in receipt name, record the payment method/reference, and print the
+receipt. Recording `card` documents a payment already received; it does not
+charge a card terminal.
+
+The database completes the entire sale atomically. It locks active inventory
+rows in a stable order, rejects insufficient stock, snapshots the receipt and
+weighted-average COGS, and creates immutable stock issues. COGS remains visible
+only to owner, project manager, and accounting roles. Voiding a receipt requires
+a reason and creates linked stock returns without deleting the original sale.
+
+Validate receipt totals, SKU snapshots, atomic stock behavior, COGS privacy,
+customer-directory privacy, void returns, and role boundaries inside a
+rolled-back transaction:
+
+```bash
+railway run -- npm run db:check-counter-sales-migration
+```
