@@ -28,7 +28,22 @@ function jsonError(message: string, status: number) {
 
 function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
-  return !origin || origin === new URL(request.url).origin;
+  if (!origin) return true;
+  try {
+    const requestUrl = new URL(request.url);
+    const forwardedHost = request.headers.get("x-forwarded-host")
+      ?.split(",")[0]
+      ?.trim();
+    const forwardedProto = request.headers.get("x-forwarded-proto")
+      ?.split(",")[0]
+      ?.trim();
+    const expectedHost = forwardedHost || request.headers.get("host") || requestUrl.host;
+    const expectedProtocol = forwardedProto ? `${forwardedProto}:` : requestUrl.protocol;
+    const originUrl = new URL(origin);
+    return originUrl.host === expectedHost && originUrl.protocol === expectedProtocol;
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(
