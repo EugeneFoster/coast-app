@@ -106,6 +106,22 @@ export function canManageOperations(role: UserRole) {
   return canManageProjects(role);
 }
 
+export function canAdministerPaintYard(role: UserRole) {
+  return canManageOperations(role);
+}
+
+export function canWorkPaintYard(role: UserRole) {
+  return canAdministerPaintYard(role) || role === "painter";
+}
+
+export function canViewPaintYard(role: UserRole) {
+  return (
+    canWorkPaintYard(role) ||
+    role === "sales" ||
+    role === "accounting"
+  );
+}
+
 export function canManageInventory(role: UserRole) {
   return role === "owner" || role === "project_manager" || role === "parts";
 }
