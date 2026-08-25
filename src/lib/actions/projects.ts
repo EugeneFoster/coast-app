@@ -157,6 +157,17 @@ export async function createProjectAction(
     .insert(projectRow);
   if (projectError) return { error: projectError.message };
 
+  if (input.modelPath) {
+    const { error: modelError } = await supabase.rpc("register_project_model", {
+      p_project_id: projectId,
+      p_name: "Uploaded model",
+      p_storage_path: input.modelPath,
+      p_source: "upload",
+      p_imported_by: user.id,
+    });
+    if (modelError) return { error: modelError.message };
+  }
+
   if (drawings.length > 0) {
     const { data: insertedDrawings, error: drawingError } = await supabase
       .from("drawings")

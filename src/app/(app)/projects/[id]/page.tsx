@@ -8,6 +8,7 @@ import { StatusSelect } from "@/components/status-select";
 import { ProjectNameEditor } from "@/components/project-name-editor";
 import { ProjectKebab } from "@/components/project-kebab";
 import { ProjectTabs } from "@/components/project-tabs";
+import type { ProjectModelView } from "@/components/project-models-panel";
 import {
   assignProjectMemberFromForm,
   removeProjectMember,
@@ -15,6 +16,7 @@ import {
 import { resolveCoverUrl } from "@/lib/covers";
 import { isPdfOnlyDrawing, type TilingHint } from "@/lib/drawing-status";
 import { ASSIGNABLE_PROJECT_ROLES } from "@/lib/employee-roles";
+import { isOnshapeConfigured } from "@/lib/onshape/client";
 
 type GalleryRow = {
   id: string;
@@ -95,13 +97,77 @@ export default async function ProjectPage({
 
   const coverUrl = resolveCoverUrl(project.cover_url);
 
-  // Model (private bucket → signed URL)
-  let modelUrl: string | null = null;
-  if (project.model_url) {
-    const { data: signed } = await supabase.storage
+  // Project model registry (private bucket → short-lived signed URLs).
+  let projectModels: ProjectModelView[] = [];
+  try {
+    const { data: modelRows, error: modelsError } = await adminClient
+      .from("project_models")
+      .select(
+        "id, name, storage_path, source, is_primary, file_size_bytes, onshape_source_url, onshape_element_type, onshape_resolution, imported_at",
+      )
+      .eq("project_id", id)
+      .order("imported_at", { ascending: false });
+    if (modelsError) {
+      console.error("[project-page] project_models", modelsError.message);
+    } else if (modelRows && modelRows.length > 0) {
+      const { data: signedModels, error: signModelsError } = await adminClient.storage
+        .from("project-models")
+        .createSignedUrls(
+          modelRows.map((model) => model.storage_path),
+          3600,
+        );
+      if (signModelsError) {
+        console.error("[project-page] model signed urls", signModelsError.message);
+      } else {
+        projectModels = modelRows.flatMap((model, index) => {
+          const url = signedModels?.[index]?.signedUrl;
+          if (!url) return [];
+          return [
+            {
+              id: model.id,
+              name: model.name,
+              url,
+              source: model.source as "upload" | "onshape",
+              isPrimary: model.is_primary,
+              fileSizeBytes: model.file_size_bytes,
+              sourceUrl: model.onshape_source_url,
+              elementType: model.onshape_element_type as "PARTSTUDIO" | "ASSEMBLY" | null,
+              resolution: model.onshape_resolution as
+                | "COARSE"
+                | "MEDIUM"
+                | "FINE"
+                | null,
+              importedAt: model.imported_at,
+            },
+          ];
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[project-page] project_models", error);
+  }
+
+  // Compatibility fallback while older uploaded models are being backfilled.
+  if (projectModels.length === 0 && project.model_url) {
+    const { data: signed } = await adminClient.storage
       .from("project-models")
       .createSignedUrl(project.model_url, 3600);
-    modelUrl = signed?.signedUrl ?? null;
+    if (signed?.signedUrl) {
+      projectModels = [
+        {
+          id: `legacy-${id}`,
+          name: "Uploaded model",
+          url: signed.signedUrl,
+          source: "upload",
+          isPrimary: true,
+          fileSizeBytes: null,
+          sourceUrl: null,
+          elementType: null,
+          resolution: null,
+          importedAt: project.updated_at,
+        },
+      ];
+    }
   }
 
   // Drawings → deep-zoom viewer files (pages from drawing_pages, PDF fallback).
@@ -307,7 +373,8 @@ export default async function ProjectPage({
         coverUrl={coverUrl}
         coverPath={project.cover_url}
         description={project.description}
-        modelUrl={modelUrl}
+        models={projectModels}
+        onshapeConfigured={isOnshapeConfigured()}
         drawings={drawingFiles}
         gallery={gallery}
         canUpload={admin || assignedIds.has(profile.id)}
