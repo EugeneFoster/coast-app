@@ -3,7 +3,10 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { ModelPreview } from "@/components/model-preview";
+import {
+  ProjectModelsPanel,
+  type ProjectModelView,
+} from "@/components/project-models-panel";
 import type { DrawingFile } from "@/components/drawings-viewer";
 import { CoverImage } from "@/components/cover-image";
 import { ProjectDescriptionEditor } from "@/components/project-description-editor";
@@ -57,7 +60,8 @@ export function ProjectTabs({
   coverUrl,
   coverPath,
   description,
-  modelUrl,
+  models,
+  onshapeConfigured,
   drawings,
   gallery,
   canUpload,
@@ -69,7 +73,8 @@ export function ProjectTabs({
   coverUrl: string | null;
   coverPath: string | null;
   description: string | null;
-  modelUrl: string | null;
+  models: ProjectModelView[];
+  onshapeConfigured: boolean;
   drawings: DrawingFile[];
   gallery: Media[];
   canUpload: boolean;
@@ -105,7 +110,8 @@ export function ProjectTabs({
           coverUrl={coverUrl}
           coverPath={coverPath}
           description={description}
-          modelUrl={modelUrl}
+          models={models}
+          onshapeConfigured={onshapeConfigured}
           teamSlot={teamSlot}
           isAdminUser={isAdminUser}
         />
@@ -144,7 +150,8 @@ function OverviewPanel({
   coverUrl,
   coverPath,
   description,
-  modelUrl,
+  models,
+  onshapeConfigured,
   teamSlot,
   isAdminUser,
 }: {
@@ -153,7 +160,8 @@ function OverviewPanel({
   coverUrl: string | null;
   coverPath: string | null;
   description: string | null;
-  modelUrl: string | null;
+  models: ProjectModelView[];
+  onshapeConfigured: boolean;
   teamSlot?: ReactNode;
   isAdminUser: boolean;
 }) {
@@ -187,14 +195,12 @@ function OverviewPanel({
         </div>
       </section>
 
-      {modelUrl && (
-        <section>
-          <h2 className="font-display text-lg font-medium text-ink">3D model</h2>
-          <div className="mt-4">
-            <ModelPreview src={modelUrl} />
-          </div>
-        </section>
-      )}
+      <ProjectModelsPanel
+        projectId={projectId}
+        models={models}
+        canManage={isAdminUser}
+        onshapeConfigured={onshapeConfigured}
+      />
 
       {teamSlot}
     </div>

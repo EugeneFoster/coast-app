@@ -19,6 +19,8 @@
     "db:check-counter-sales-migration": "node scripts/check-counter-sales-migration.mjs",
     "db:check-schedule-migration": "node scripts/check-schedule-migration.mjs",
     "db:check-paint-yard-migration": "node scripts/check-paint-yard-migration.mjs",
+    "db:check-onshape-migration": "node scripts/check-onshape-migration.mjs",
+    "check:onshape": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/check-onshape-integration.mjs",
     "db:verify": "node scripts/verify-production-schema.mjs"
   },
   "dependencies": {
@@ -28,6 +30,7 @@
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "bullmq": "^5.79.2",
+    "fflate": "^0.8.3",
     "ioredis": "^5.11.1",
     "next": "16.3.2",
     "openseadragon": "^6.0.2",

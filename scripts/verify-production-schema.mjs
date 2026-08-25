@@ -23,6 +23,7 @@ const expectedTables = [
   "markup_photos",
   "profiles",
   "project_members",
+  "project_models",
   "project_financial_settings",
   "projects",
   "opportunities",
@@ -204,6 +205,9 @@ try {
   const paintYardPolicies = paintYardPolicyNames.every((policy) =>
     policyKeys.includes(policy),
   );
+  const projectModelPolicies = policyKeys.includes(
+    "public.project_models.project_models_read",
+  );
   const projectAccountingPolicyAbsent = !policyKeys.includes(
     "public.projects.projects_operations_accounting_read",
   );
@@ -288,6 +292,14 @@ try {
   const paintYardRls =
     paintYardSecurityRows.length === 4 &&
     paintYardSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
+
+  const { rows: projectModelSecurityRows } = await client.query(`
+    select relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'project_models'
+  `);
+  const projectModelsRls = projectModelSecurityRows[0]?.relrowsecurity === true;
 
   const { rows: profileColumnRows } = await client.query(`
     select column_name
@@ -506,6 +518,14 @@ try {
         'void_paint_coating_log',
         'create_paint_job_invoice'
       )
+  `);
+
+  const { rows: projectModelFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in ('register_project_model', 'set_primary_project_model')
   `);
 
   const { rows: mismatchRows } = await client.query(`
@@ -958,6 +978,29 @@ try {
       ) as paint_financial_link_mismatches
   `);
 
+  const { rows: projectModelIntegrityRows } = await client.query(`
+    select
+      (select count(*)::integer from public.project_models) as project_models,
+      (
+        select count(*)::integer
+        from (
+          select project_id
+          from public.project_models
+          where is_primary
+          group by project_id
+          having count(*) > 1
+        ) duplicate
+      ) as duplicate_primary_models,
+      (
+        select count(*)::integer
+        from public.projects project
+        left join public.project_models model
+          on model.project_id = project.id and model.is_primary
+        where project.model_url is distinct from model.storage_path
+          and (project.model_url is not null or model.storage_path is not null)
+      ) as project_model_url_mismatches
+  `);
+
   const { rows: migrationTableRows } = await client.query(`
     select to_regclass('supabase_migrations.schema_migrations') is not null as exists
   `);
@@ -1104,6 +1147,11 @@ try {
     "void_paint_coating_log",
     "create_paint_job_invoice",
   ].every((name) => paintYardFunctions.includes(name));
+  const projectModelFunctions = projectModelFunctionRows.map(({ proname }) => proname);
+  const projectModelWorkflowFunctions = [
+    "register_project_model",
+    "set_primary_project_model",
+  ].every((name) => projectModelFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
     clients: 0,
@@ -1177,6 +1225,11 @@ try {
     coating_material_mismatches: 0,
     paint_financial_link_mismatches: 0,
   };
+  const projectModelIntegrity = projectModelIntegrityRows[0] ?? {
+    project_models: 0,
+    duplicate_primary_models: 0,
+    project_model_url_mismatches: 0,
+  };
   const ok =
     missingTables.length === 0 &&
     missingBuckets.length === 0 &&
@@ -1244,6 +1297,11 @@ try {
     paintYardIntegrity.missing_create_events === 0 &&
     paintYardIntegrity.coating_material_mismatches === 0 &&
     paintYardIntegrity.paint_financial_link_mismatches === 0 &&
+    projectModelPolicies &&
+    projectModelsRls &&
+    projectModelWorkflowFunctions &&
+    projectModelIntegrity.duplicate_primary_models === 0 &&
+    projectModelIntegrity.project_model_url_mismatches === 0 &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -1306,6 +1364,12 @@ try {
       paintYardRls,
       paintYardWorkflowFunctions,
       paintYardIntegrity,
+    },
+    projectModels: {
+      projectModelPolicies,
+      projectModelsRls,
+      projectModelWorkflowFunctions,
+      projectModelIntegrity,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,

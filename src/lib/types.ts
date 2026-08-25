@@ -590,6 +590,29 @@ export interface Project {
   clients?: Client | null;
 }
 
+export type ProjectModelSource = "upload" | "onshape";
+
+export interface ProjectModel {
+  id: string;
+  project_id: string;
+  name: string;
+  storage_path: string;
+  source: ProjectModelSource;
+  is_primary: boolean;
+  file_size_bytes: number | null;
+  onshape_document_id: string | null;
+  onshape_wvm: "w" | "v" | "m" | null;
+  onshape_wvm_id: string | null;
+  onshape_element_id: string | null;
+  onshape_element_type: "PARTSTUDIO" | "ASSEMBLY" | null;
+  onshape_source_url: string | null;
+  onshape_translation_id: string | null;
+  onshape_resolution: "COARSE" | "MEDIUM" | "FINE" | null;
+  imported_by: string | null;
+  imported_at: string;
+  created_at: string;
+}
+
 export interface Drawing {
   id: string;
   project_id: string;
