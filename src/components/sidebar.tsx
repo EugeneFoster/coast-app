@@ -9,6 +9,7 @@ import {
   canViewCounterSales,
   canViewInventory,
   canViewSales,
+  canManageOperations,
   userRoleLabel,
 } from "@/lib/employee-roles";
 
@@ -20,9 +21,12 @@ const navItems: Array<{
   inventoryOnly?: boolean;
   billingOnly?: boolean;
   counterSalesOnly?: boolean;
+  operationsManagerOnly?: boolean;
 }> = [
   { href: "/projects", label: "Projects" },
+  { href: "/my-day", label: "My day" },
   { href: "/work-orders", label: "Work orders" },
+  { href: "/schedule", label: "Team schedule", operationsManagerOnly: true },
   { href: "/inventory", label: "Inventory", inventoryOnly: true },
   { href: "/sales", label: "Sales CRM", salesOnly: true },
   { href: "/billing", label: "Billing", billingOnly: true },
@@ -74,7 +78,8 @@ export function Sidebar({
               (!item.salesOnly || canViewSales(profile.role)) &&
               (!item.inventoryOnly || canViewInventory(profile.role)) &&
               (!item.billingOnly || canViewBilling(profile.role)) &&
-              (!item.counterSalesOnly || canViewCounterSales(profile.role)),
+              (!item.counterSalesOnly || canViewCounterSales(profile.role)) &&
+              (!item.operationsManagerOnly || canManageOperations(profile.role)),
           )
           .map((item) => {
             const active =

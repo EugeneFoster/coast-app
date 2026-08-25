@@ -54,6 +54,8 @@ function validateIdentifiers(projectId: string, workOrderId?: string) {
 
 function revalidateOperations(projectId: string, workOrderId?: string) {
   revalidatePath("/work-orders");
+  revalidatePath("/schedule");
+  revalidatePath("/my-day");
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/projects/${projectId}/work-orders`);
   if (workOrderId) {
