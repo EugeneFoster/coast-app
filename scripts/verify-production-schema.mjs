@@ -31,6 +31,8 @@ const expectedTables = [
   "suppliers",
   "time_entries",
   "work_order_assignments",
+  "work_order_schedule_events",
+  "work_order_schedule_slots",
   "work_orders",
 ];
 
@@ -182,6 +184,13 @@ try {
   const counterSalesPolicies = counterSalesPolicyNames.every((policy) =>
     policyKeys.includes(policy),
   );
+  const schedulePolicyNames = [
+    "public.work_order_schedule_slots.schedule_slots_view",
+    "public.work_order_schedule_events.schedule_events_view",
+  ];
+  const schedulePolicies = schedulePolicyNames.every((policy) =>
+    policyKeys.includes(policy),
+  );
   const projectAccountingPolicyAbsent = !policyKeys.includes(
     "public.projects.projects_operations_accounting_read",
   );
@@ -239,6 +248,19 @@ try {
   const counterSalesRls =
     counterSalesSecurityRows.length === 3 &&
     counterSalesSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
+
+  const { rows: scheduleSecurityRows } = await client.query(`
+    select relname, relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in (
+        'work_order_schedule_slots', 'work_order_schedule_events'
+      )
+  `);
+  const scheduleRls =
+    scheduleSecurityRows.length === 2 &&
+    scheduleSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
 
   const { rows: profileColumnRows } = await client.query(`
     select column_name
@@ -408,6 +430,25 @@ try {
         'protect_counter_sale_record',
         'validate_counter_sale_inventory_movement',
         'validate_counter_sale_item_cost'
+      )
+  `);
+
+  const { rows: scheduleFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'can_manage_schedule',
+        'can_view_schedule_slot',
+        'protect_schedule_workflow',
+        'schedule_employee_directory',
+        'schedule_work_order_directory',
+        'team_schedule',
+        'my_schedule',
+        'my_unscheduled_work_orders',
+        'save_work_order_schedule_slot',
+        'cancel_work_order_schedule_slot'
       )
   `);
 
@@ -711,6 +752,56 @@ try {
       ) as counter_sale_stock_mismatches
   `);
 
+  const { rows: scheduleIntegrityRows } = await client.query(`
+    select
+      (select count(*)::integer from public.work_order_schedule_slots)
+        as schedule_slots,
+      (select count(*)::integer from public.work_order_schedule_events)
+        as schedule_events,
+      (
+        select count(*)::integer
+        from public.work_order_schedule_slots a
+        join public.work_order_schedule_slots b
+          on b.profile_id = a.profile_id and b.id > a.id
+        join public.work_orders a_work_order on a_work_order.id = a.work_order_id
+        join public.work_orders b_work_order on b_work_order.id = b.work_order_id
+        where a.status = 'scheduled'
+          and b.status = 'scheduled'
+          and a_work_order.status not in ('completed', 'cancelled')
+          and b_work_order.status not in ('completed', 'cancelled')
+          and a.starts_at < b.ends_at
+          and a.ends_at > b.starts_at
+      ) as active_schedule_overlaps,
+      (
+        select count(*)::integer
+        from public.work_order_schedule_slots slot
+        left join public.work_order_assignments assignment
+          on assignment.work_order_id = slot.work_order_id
+          and assignment.profile_id = slot.profile_id
+        where slot.status = 'scheduled'
+          and assignment.profile_id is null
+      ) as schedule_assignment_mismatches,
+      (
+        select count(*)::integer
+        from public.work_order_schedule_slots slot
+        where not exists (
+          select 1
+          from public.work_order_schedule_events event
+          where event.slot_id = slot.id and event.event_type = 'created'
+        )
+      ) as schedule_missing_create_events,
+      (
+        select count(*)::integer
+        from public.work_order_schedule_slots slot
+        where slot.status = 'cancelled'
+          and not exists (
+            select 1
+            from public.work_order_schedule_events event
+            where event.slot_id = slot.id and event.event_type = 'cancelled'
+          )
+      ) as schedule_cancellation_mismatches
+  `);
+
   const { rows: migrationTableRows } = await client.query(`
     select to_regclass('supabase_migrations.schema_migrations') is not null as exists
   `);
@@ -821,6 +912,19 @@ try {
     "validate_counter_sale_inventory_movement",
     "validate_counter_sale_item_cost",
   ].every((name) => counterSalesFunctions.includes(name));
+  const scheduleFunctions = scheduleFunctionRows.map(({ proname }) => proname);
+  const scheduleWorkflowFunctions = [
+    "can_manage_schedule",
+    "can_view_schedule_slot",
+    "protect_schedule_workflow",
+    "schedule_employee_directory",
+    "schedule_work_order_directory",
+    "team_schedule",
+    "my_schedule",
+    "my_unscheduled_work_orders",
+    "save_work_order_schedule_slot",
+    "cancel_work_order_schedule_slot",
+  ].every((name) => scheduleFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
     clients: 0,
@@ -873,6 +977,14 @@ try {
     missing_counter_sale_costs: 0,
     counter_sale_stock_mismatches: 0,
   };
+  const scheduleIntegrity = scheduleIntegrityRows[0] ?? {
+    schedule_slots: 0,
+    schedule_events: 0,
+    active_schedule_overlaps: 0,
+    schedule_assignment_mismatches: 0,
+    schedule_missing_create_events: 0,
+    schedule_cancellation_mismatches: 0,
+  };
   const ok =
     missingTables.length === 0 &&
     missingBuckets.length === 0 &&
@@ -923,6 +1035,13 @@ try {
     counterSalesIntegrity.counter_sale_total_mismatches === 0 &&
     counterSalesIntegrity.missing_counter_sale_costs === 0 &&
     counterSalesIntegrity.counter_sale_stock_mismatches === 0 &&
+    schedulePolicies &&
+    scheduleRls &&
+    scheduleWorkflowFunctions &&
+    scheduleIntegrity.active_schedule_overlaps === 0 &&
+    scheduleIntegrity.schedule_assignment_mismatches === 0 &&
+    scheduleIntegrity.schedule_missing_create_events === 0 &&
+    scheduleIntegrity.schedule_cancellation_mismatches === 0 &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -973,6 +1092,12 @@ try {
       counterSalesRls,
       counterSalesWorkflowFunctions,
       counterSalesIntegrity,
+    },
+    schedule: {
+      schedulePolicies,
+      scheduleRls,
+      scheduleWorkflowFunctions,
+      scheduleIntegrity,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,

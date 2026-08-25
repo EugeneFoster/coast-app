@@ -193,6 +193,41 @@ export interface WorkOrderAssignment {
   created_at: string;
 }
 
+export type ScheduleSlotStatus = "scheduled" | "cancelled";
+export type ScheduleEventType = "created" | "rescheduled" | "cancelled";
+
+export interface WorkOrderScheduleSlot {
+  id: string;
+  work_order_id: string;
+  profile_id: string;
+  starts_at: string;
+  ends_at: string;
+  note: string | null;
+  status: ScheduleSlotStatus;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  cancellation_reason: string | null;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkOrderScheduleEvent {
+  id: string;
+  slot_id: string;
+  event_type: ScheduleEventType;
+  old_profile_id: string | null;
+  new_profile_id: string | null;
+  old_starts_at: string | null;
+  old_ends_at: string | null;
+  new_starts_at: string | null;
+  new_ends_at: string | null;
+  detail: string | null;
+  created_by: string;
+  created_at: string;
+}
+
 export interface TimeEntry {
   id: string;
   work_order_id: string;

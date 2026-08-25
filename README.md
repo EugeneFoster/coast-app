@@ -185,6 +185,28 @@ transaction:
 railway run -- npm run db:check-operations-migration
 ```
 
+## Team scheduling and My Day
+
+Owners, project managers, and CAD designers use **Team schedule** (`/schedule`)
+to assign employees to work-order shifts on a weekly calendar. Schedule times are
+entered and displayed in the Vancouver time zone. Creating a shift automatically
+adds the employee to the work order and project when needed.
+
+Postgres serializes schedule changes per employee and rejects overlapping active
+shifts, including concurrent requests. Shifts can be rescheduled or cancelled with
+a reason; every change creates an immutable audit event. Employees use **My day**
+(`/my-day`) to see only their own scheduled shifts, work-order scope, location, and
+quick status actions. Assigned work that has not yet been scheduled is listed
+separately.
+
+Validate timezone conversion, automatic assignment, overlap prevention, immutable
+audit events, manager permissions, and employee privacy inside a rolled-back
+transaction:
+
+```bash
+railway run -- npm run db:check-schedule-migration
+```
+
 ## Inventory & purchasing
 
 The **Inventory** workspace is available to parts staff, owners, project managers,
