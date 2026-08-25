@@ -196,6 +196,51 @@ export interface WorkOrderAssignment {
 export type ScheduleSlotStatus = "scheduled" | "cancelled";
 export type ScheduleEventType = "created" | "rescheduled" | "cancelled";
 
+export type PaintJobStage =
+  | "expected"
+  | "yard_intake"
+  | "wash_mask"
+  | "surface_prep"
+  | "primer"
+  | "coating"
+  | "cure_qc"
+  | "ready"
+  | "delivered"
+  | "on_hold"
+  | "cancelled";
+export type VesselHullMaterial =
+  | "fiberglass"
+  | "aluminum"
+  | "steel"
+  | "wood"
+  | "composite"
+  | "unknown";
+export type PaintScopeArea =
+  | "bottom"
+  | "topsides"
+  | "deck"
+  | "superstructure"
+  | "touch_up"
+  | "other";
+export type PaintTaskStatus = "pending" | "complete" | "not_applicable";
+export type CoatingOperation =
+  | "cleaner_dewaxer"
+  | "filler_fairing"
+  | "primer"
+  | "barrier_coat"
+  | "tie_coat"
+  | "topcoat"
+  | "antifouling"
+  | "clearcoat"
+  | "other";
+export type CoatingApplicationMethod =
+  | "brush"
+  | "roller"
+  | "spray"
+  | "trowel"
+  | "wipe"
+  | "other";
+
 export interface WorkOrderScheduleSlot {
   id: string;
   work_order_id: string;

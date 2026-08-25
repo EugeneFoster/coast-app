@@ -26,6 +26,10 @@ const expectedTables = [
   "project_financial_settings",
   "projects",
   "opportunities",
+  "paint_coating_logs",
+  "paint_job_stage_events",
+  "paint_job_tasks",
+  "paint_jobs",
   "purchase_order_items",
   "purchase_orders",
   "suppliers",
@@ -191,6 +195,15 @@ try {
   const schedulePolicies = schedulePolicyNames.every((policy) =>
     policyKeys.includes(policy),
   );
+  const paintYardPolicyNames = [
+    "public.paint_jobs.paint_jobs_view",
+    "public.paint_job_tasks.paint_job_tasks_view",
+    "public.paint_job_stage_events.paint_job_stage_events_view",
+    "public.paint_coating_logs.paint_coating_logs_view",
+  ];
+  const paintYardPolicies = paintYardPolicyNames.every((policy) =>
+    policyKeys.includes(policy),
+  );
   const projectAccountingPolicyAbsent = !policyKeys.includes(
     "public.projects.projects_operations_accounting_read",
   );
@@ -261,6 +274,20 @@ try {
   const scheduleRls =
     scheduleSecurityRows.length === 2 &&
     scheduleSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
+
+  const { rows: paintYardSecurityRows } = await client.query(`
+    select relname, relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in (
+        'paint_jobs', 'paint_job_tasks', 'paint_job_stage_events',
+        'paint_coating_logs'
+      )
+  `);
+  const paintYardRls =
+    paintYardSecurityRows.length === 4 &&
+    paintYardSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
 
   const { rows: profileColumnRows } = await client.query(`
     select column_name
@@ -449,6 +476,35 @@ try {
         'my_unscheduled_work_orders',
         'save_work_order_schedule_slot',
         'cancel_work_order_schedule_slot'
+      )
+  `);
+
+  const { rows: paintYardFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'can_administer_paint_yard',
+        'can_work_paint_yard',
+        'can_view_paint_yard',
+        'can_view_paint_financials',
+        'can_view_paint_job',
+        'protect_paint_workflow',
+        'protect_paint_work_order_plan',
+        'protect_linked_paint_material_entry',
+        'paint_yard_project_directory',
+        'paint_yard_board',
+        'paint_job_checklist',
+        'paint_job_coating_history',
+        'paint_job_stage_history',
+        'create_paint_job',
+        'update_paint_job_plan',
+        'set_paint_job_task_status',
+        'move_paint_job_stage',
+        'log_paint_coating',
+        'void_paint_coating_log',
+        'create_paint_job_invoice'
       )
   `);
 
@@ -802,6 +858,106 @@ try {
       ) as schedule_cancellation_mismatches
   `);
 
+  const { rows: paintYardIntegrityRows } = await client.query(`
+    select
+      (select count(*)::integer from public.paint_jobs) as paint_jobs,
+      (select count(*)::integer from public.paint_job_tasks) as paint_tasks,
+      (select count(*)::integer from public.paint_job_stage_events) as paint_stage_events,
+      (select count(*)::integer from public.paint_coating_logs) as coating_logs,
+      (
+        select count(*)::integer
+        from (
+          select project_id
+          from public.paint_jobs
+          where stage not in ('delivered', 'cancelled')
+          group by project_id
+          having count(*) > 1
+        ) duplicate
+      ) as active_project_duplicates,
+      (
+        select count(*)::integer
+        from public.paint_jobs job
+        join public.projects project on project.id = job.project_id
+        join public.work_orders work_order on work_order.id = job.work_order_id
+        where work_order.project_id is distinct from job.project_id
+          or work_order.service_category <> 'boat_painting'
+          or work_order.scheduled_start is distinct from job.arrival_date
+          or work_order.scheduled_end is distinct from job.due_date
+          or work_order.estimated_hours is distinct from job.planned_hours
+          or work_order.priority is distinct from job.priority
+          or work_order.location is distinct from job.yard_location
+          or project.client_id is null
+      ) as job_work_order_mismatches,
+      (
+        select count(*)::integer
+        from public.paint_jobs job
+        join public.work_orders work_order on work_order.id = job.work_order_id
+        where work_order.status is distinct from case
+          when job.stage = 'expected' then 'planned'::public.work_order_status
+          when job.stage = 'yard_intake' then 'ready'::public.work_order_status
+          when job.stage in ('wash_mask', 'surface_prep', 'primer', 'coating', 'cure_qc')
+            then 'in_progress'::public.work_order_status
+          when job.stage in ('ready', 'delivered') then 'completed'::public.work_order_status
+          when job.stage = 'on_hold' then 'blocked'::public.work_order_status
+          else 'cancelled'::public.work_order_status
+        end
+          or (job.stage in ('ready', 'delivered') and job.ready_at is null)
+          or (job.stage = 'delivered' and job.delivered_at is null)
+          or (job.stage <> 'delivered' and job.delivered_at is not null)
+      ) as job_status_mismatches,
+      (
+        select count(*)::integer
+        from public.paint_jobs job
+        where (select count(*) from public.paint_job_tasks task
+               where task.paint_job_id = job.id) <> 31
+      ) as checklist_count_mismatches,
+      (
+        select count(*)::integer
+        from public.paint_jobs job
+        where not exists (
+          select 1 from public.paint_job_stage_events event
+          where event.paint_job_id = job.id
+            and event.old_stage is null
+            and event.new_stage = 'expected'
+        )
+      ) as missing_create_events,
+      (
+        select count(*)::integer
+        from public.paint_coating_logs log
+        join public.paint_jobs job on job.id = log.paint_job_id
+        left join public.material_entries material on material.id = log.material_entry_id
+        where material.id is null
+          or material.work_order_id is distinct from job.work_order_id
+          or material.quantity is distinct from log.quantity_used
+          or material.unit is distinct from log.quantity_unit
+          or (
+            log.voided_at is null and material.unit_cost is distinct from log.unit_cost
+          )
+          or (
+            log.voided_at is not null
+            and (material.unit_cost <> 0 or material.description not like '[VOID] %')
+          )
+      ) as coating_material_mismatches,
+      (
+        select count(*)::integer
+        from public.paint_jobs job
+        join public.projects project on project.id = job.project_id
+        join public.opportunities opportunity on opportunity.id = job.opportunity_id
+        join public.estimates estimate on estimate.id = job.estimate_id
+        left join public.invoices invoice on invoice.id = job.invoice_id
+        where opportunity.project_id is distinct from job.project_id
+          or opportunity.client_id is distinct from project.client_id
+          or estimate.opportunity_id is distinct from job.opportunity_id
+          or estimate.client_id is distinct from project.client_id
+          or (job.invoice_id is not null and (
+            invoice.id is null
+            or invoice.source_estimate_id is distinct from job.estimate_id
+            or invoice.project_id is distinct from job.project_id
+            or invoice.client_id is distinct from project.client_id
+          ))
+      ) as paint_financial_link_mismatches
+  `);
+
   const { rows: migrationTableRows } = await client.query(`
     select to_regclass('supabase_migrations.schema_migrations') is not null as exists
   `);
@@ -925,6 +1081,29 @@ try {
     "save_work_order_schedule_slot",
     "cancel_work_order_schedule_slot",
   ].every((name) => scheduleFunctions.includes(name));
+  const paintYardFunctions = paintYardFunctionRows.map(({ proname }) => proname);
+  const paintYardWorkflowFunctions = [
+    "can_administer_paint_yard",
+    "can_work_paint_yard",
+    "can_view_paint_yard",
+    "can_view_paint_financials",
+    "can_view_paint_job",
+    "protect_paint_workflow",
+    "protect_paint_work_order_plan",
+    "protect_linked_paint_material_entry",
+    "paint_yard_project_directory",
+    "paint_yard_board",
+    "paint_job_checklist",
+    "paint_job_coating_history",
+    "paint_job_stage_history",
+    "create_paint_job",
+    "update_paint_job_plan",
+    "set_paint_job_task_status",
+    "move_paint_job_stage",
+    "log_paint_coating",
+    "void_paint_coating_log",
+    "create_paint_job_invoice",
+  ].every((name) => paintYardFunctions.includes(name));
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
     clients: 0,
@@ -985,6 +1164,19 @@ try {
     schedule_missing_create_events: 0,
     schedule_cancellation_mismatches: 0,
   };
+  const paintYardIntegrity = paintYardIntegrityRows[0] ?? {
+    paint_jobs: 0,
+    paint_tasks: 0,
+    paint_stage_events: 0,
+    coating_logs: 0,
+    active_project_duplicates: 0,
+    job_work_order_mismatches: 0,
+    job_status_mismatches: 0,
+    checklist_count_mismatches: 0,
+    missing_create_events: 0,
+    coating_material_mismatches: 0,
+    paint_financial_link_mismatches: 0,
+  };
   const ok =
     missingTables.length === 0 &&
     missingBuckets.length === 0 &&
@@ -1042,6 +1234,16 @@ try {
     scheduleIntegrity.schedule_assignment_mismatches === 0 &&
     scheduleIntegrity.schedule_missing_create_events === 0 &&
     scheduleIntegrity.schedule_cancellation_mismatches === 0 &&
+    paintYardPolicies &&
+    paintYardRls &&
+    paintYardWorkflowFunctions &&
+    paintYardIntegrity.active_project_duplicates === 0 &&
+    paintYardIntegrity.job_work_order_mismatches === 0 &&
+    paintYardIntegrity.job_status_mismatches === 0 &&
+    paintYardIntegrity.checklist_count_mismatches === 0 &&
+    paintYardIntegrity.missing_create_events === 0 &&
+    paintYardIntegrity.coating_material_mismatches === 0 &&
+    paintYardIntegrity.paint_financial_link_mismatches === 0 &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -1098,6 +1300,12 @@ try {
       scheduleRls,
       scheduleWorkflowFunctions,
       scheduleIntegrity,
+    },
+    paintYard: {
+      paintYardPolicies,
+      paintYardRls,
+      paintYardWorkflowFunctions,
+      paintYardIntegrity,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,

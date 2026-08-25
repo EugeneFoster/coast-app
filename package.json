@@ -18,6 +18,7 @@
     "db:check-parts-sales-migration": "node scripts/check-parts-sales-migration.mjs",
     "db:check-counter-sales-migration": "node scripts/check-counter-sales-migration.mjs",
     "db:check-schedule-migration": "node scripts/check-schedule-migration.mjs",
+    "db:check-paint-yard-migration": "node scripts/check-paint-yard-migration.mjs",
     "db:verify": "node scripts/verify-production-schema.mjs"
   },
   "dependencies": {

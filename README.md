@@ -207,6 +207,41 @@ transaction:
 railway run -- npm run db:check-schedule-migration
 ```
 
+## Paint Yard
+
+`/paint-yard` is the boat-painting control board. A manager books an incoming
+vessel against an existing customer project and creates the linked paint work
+order, 31-item process checklist, assigned crew, planned labor budget, and draft
+quote in one database transaction.
+
+The board follows the vessel through Expected, At yard, Wash & mask, Surface
+prep, Primer, Coating, Cure & QC, Ready, and Delivered, with On hold and audited
+rework paths. Required checklist gates prevent an incomplete forward handoff.
+The Paint Yard remains the source of truth for the linked work-order plan and
+status so the two workflows cannot drift apart.
+
+Every cleaner, fairing product, primer, barrier coat, topcoat, and antifouling
+application is logged immutably with area, coat number, manufacturer, product
+code, color, batch, quantity, mix/reducer, application method, Vancouver time,
+temperature, humidity, dew point, film readings, and TDS/SDS/PPE/ventilation
+checks. Coating layers require environmental readings and a substrate at least
+3°C above the recorded dew point. Corrections use a reasoned void that preserves
+the original record and neutralizes its linked material cost.
+
+Painters can operate the board and record work without receiving quote, invoice,
+or material-cost fields. Managers control planning; sales/accounting roles see
+the financial links. Actual labor comes from work-order time entries. Once the
+quote is accepted and the vessel is Ready, billing managers can create the final
+invoice directly from the approved quote.
+
+Validate the end-to-end workflow, role separation, traceability, environmental
+gates, Vancouver timestamps, quote conversion, and delivery inside a rolled-back
+transaction:
+
+```bash
+railway run -- npm run db:check-paint-yard-migration
+```
+
 ## Inventory & purchasing
 
 The **Inventory** workspace is available to parts staff, owners, project managers,

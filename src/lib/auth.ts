@@ -14,6 +14,9 @@ import {
   canViewSales,
   canManageCounterSales,
   canViewCounterSales,
+  canAdministerPaintYard,
+  canViewPaintYard,
+  canWorkPaintYard,
 } from "@/lib/employee-roles";
 
 function shouldLogAuthError(error: unknown) {
@@ -107,6 +110,24 @@ export async function requireSalesManager() {
 export async function requireOperationsManager() {
   const { user, profile } = await requireUser();
   if (!canManageOperations(profile.role)) redirect("/work-orders");
+  return { user, profile };
+}
+
+export async function requirePaintYardViewer() {
+  const { user, profile } = await requireUser();
+  if (!canViewPaintYard(profile.role)) redirect("/projects");
+  return { user, profile };
+}
+
+export async function requirePaintYardWorker() {
+  const { user, profile } = await requireUser();
+  if (!canWorkPaintYard(profile.role)) redirect("/paint-yard");
+  return { user, profile };
+}
+
+export async function requirePaintYardManager() {
+  const { user, profile } = await requireUser();
+  if (!canAdministerPaintYard(profile.role)) redirect("/paint-yard");
   return { user, profile };
 }
 
