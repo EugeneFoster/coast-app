@@ -323,6 +323,28 @@ try {
     throw new Error("Failed Xero sync did not raise a notification.");
   }
 
+  // --- a second approver can decide someone else's proposal ----------------
+  await setRole(seed.id, "owner");
+  const { id: otherPersonsId } = await propose({ parentEntityId: workOrderId });
+
+  await setRole(approverB, "owner");
+  const otherDecision = await decide(otherPersonsId, "rejected", "Wrong supplier");
+  expectEqual(otherDecision.ok, true, "Second approver decision");
+
+  const decidedByOther = await readRequest(otherPersonsId);
+  expectEqual(decidedByOther.decided_by, approverB, "Second approver recorded");
+
+  // Deciding someone else's request notifies the person who raised it.
+  const { rows: requesterNotice } = await client.query(
+    `select count(*)::integer as total
+     from public.notifications
+     where approval_request_id = $1
+       and kind = 'approval_decided'
+       and recipient_id = $2`,
+    [otherPersonsId, seed.id],
+  );
+  expectNumber(requesterNotice[0].total, 1, "Requester decision notice");
+
   // --- stale supplier data forces re-approval ------------------------------
   await setRole(seed.id, "owner");
   const { id: staleId } = await propose({ parentEntityId: workOrderId });

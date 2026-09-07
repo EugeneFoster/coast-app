@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { InventoryIssueForm } from "@/components/inventory-issue-form";
+import { ApprovalCard } from "@/components/approval-card";
 import { MaterialEntryForm } from "@/components/material-entry-form";
+import { SupplierSearchPanel } from "@/components/supplier-search-panel";
 import { TimeEntryForm } from "@/components/time-entry-form";
 import { WorkOrderDetailsForm } from "@/components/work-order-details-form";
 import {
@@ -12,11 +14,14 @@ import {
   updateWorkOrderStatusAction,
 } from "@/lib/actions/operations";
 import { reverseInventoryIssueAction } from "@/lib/actions/inventory";
+import { getApprovalRequestsForParent } from "@/lib/approvals-data";
 import { requireUser } from "@/lib/auth";
 import {
   ASSIGNABLE_WORK_ORDER_ROLES,
+  canApproveSupplierChange,
   canManageInventory,
   canManageOperations,
+  canProposeSupplierChange,
   userRoleLabel,
 } from "@/lib/employee-roles";
 import { getInventoryItemOptions } from "@/lib/inventory-data";
@@ -122,6 +127,11 @@ export default async function WorkOrderPage({
   const assignedOperator =
     assignedIds.has(user.id) && ASSIGNABLE_WORK_ORDER_ROLES.includes(profile.role);
   const canLog = canManage || assignedOperator;
+  const canSearchSuppliers = canProposeSupplierChange(profile.role);
+  const canDecideSupplierChange = canApproveSupplierChange(profile.role);
+  const supplierApprovals = canSearchSuppliers
+    ? await getApprovalRequestsForParent(workOrderId)
+    : [];
   const transitions =
     canManage || assignedOperator
       ? allowedWorkOrderTransitions(workOrder.status, canManage)
@@ -467,6 +477,32 @@ export default async function WorkOrderPage({
           </div>
         )}
       </section>
+
+      {canSearchSuppliers && (
+        <section className="mt-10">
+          <SupplierSearchPanel workOrderId={workOrderId} />
+        </section>
+      )}
+
+      {canSearchSuppliers && supplierApprovals.length > 0 && (
+        <section className="mt-10">
+          <h2 className="font-display text-xl font-medium text-ink">
+            Supplier changes awaiting approval
+          </h2>
+          <p className="mt-1 text-sm text-graph">
+            These are proposals. Nothing on this work order changes until one is approved.
+          </p>
+          <div className="mt-4 space-y-4">
+            {supplierApprovals.map((request) => (
+              <ApprovalCard
+                key={request.id}
+                request={request}
+                canDecide={canDecideSupplierChange}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {(workOrder.started_at || workOrder.completed_at) && (
         <p className="mt-8 text-xs text-graph">

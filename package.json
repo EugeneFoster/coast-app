@@ -22,6 +22,7 @@
     "db:check-onshape-migration": "node scripts/check-onshape-migration.mjs",
     "db:check-supplier-approval-migration": "node scripts/check-supplier-approval-migration.mjs",
     "check:onshape": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/check-onshape-integration.mjs",
+    "check:suppliers": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/lib/ts-alias-hook.mjs scripts/check-supplier-integration.mjs",
     "db:verify": "node scripts/verify-production-schema.mjs"
   },
   "dependencies": {
