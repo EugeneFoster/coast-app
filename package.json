@@ -20,6 +20,7 @@
     "db:check-schedule-migration": "node scripts/check-schedule-migration.mjs",
     "db:check-paint-yard-migration": "node scripts/check-paint-yard-migration.mjs",
     "db:check-onshape-migration": "node scripts/check-onshape-migration.mjs",
+    "db:check-supplier-approval-migration": "node scripts/check-supplier-approval-migration.mjs",
     "check:onshape": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/check-onshape-integration.mjs",
     "db:verify": "node scripts/verify-production-schema.mjs"
   },
