@@ -9,7 +9,7 @@ import {
 } from "@/lib/inventory";
 import { createClient } from "@/lib/supabase/server";
 import { getXeroStatus } from "@/lib/xero/client";
-import { pushInventoryItemToXero } from "@/lib/xero/inventory-sync";
+import { scheduleXeroItemPush } from "@/lib/xero/schedule";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -93,7 +93,6 @@ function inventoryItemPayload(formData: FormData) {
     unit: clean(formData, "unit"),
     sellingPrice: optionalNumber(formData, "selling_price"),
     reorderPoint: requiredNumber(formData, "reorder_point"),
-    location: nullable(formData, "location"),
     manufacturer: nullable(formData, "manufacturer"),
     imageUrl: nullable(formData, "image_url"),
     productUrl: nullable(formData, "product_url"),
@@ -201,7 +200,7 @@ export async function createInventoryItemAction(
       unit: payload.unit,
       selling_price: payload.sellingPrice,
       reorder_point: payload.reorderPoint,
-      location: payload.location,
+      location: null,
       manufacturer: payload.manufacturer,
       image_url: payload.imageUrl,
       product_url: payload.productUrl,
@@ -214,12 +213,13 @@ export async function createInventoryItemAction(
   if (error || !data) {
     return { status: "error", message: error?.message ?? "Could not create item." };
   }
-  if ((await getXeroStatus()).connected) {
+  const xeroConnected = (await getXeroStatus()).connected;
+  if (xeroConnected) {
     await supabase
       .from("inventory_items")
       .update({ xero_sync_status: "pending_push" })
       .eq("id", data.id);
-    await pushInventoryItemToXero(data.id);
+    scheduleXeroItemPush(data.id);
   }
   revalidateInventory(data.id);
   redirect(`/inventory/items/${data.id}`);
@@ -255,7 +255,7 @@ export async function updateInventoryItemAction(
       unit: payload.unit,
       selling_price: payload.sellingPrice,
       reorder_point: payload.reorderPoint,
-      location: payload.location,
+      location: null,
       manufacturer: payload.manufacturer,
       image_url: payload.imageUrl,
       product_url: payload.productUrl,
@@ -268,17 +268,21 @@ export async function updateInventoryItemAction(
   if (error || !data) {
     return { status: "error", message: error?.message ?? "Item not found." };
   }
-  let xeroWarning = "";
-  if ((await getXeroStatus()).connected) {
+  const xeroConnected = (await getXeroStatus()).connected;
+  if (xeroConnected) {
     await supabase
       .from("inventory_items")
       .update({ xero_sync_status: "pending_push" })
       .eq("id", itemId);
-    const xeroResult = await pushInventoryItemToXero(itemId);
-    if (!xeroResult.synced) xeroWarning = ` Xero sync pending: ${xeroResult.message}`;
+    scheduleXeroItemPush(itemId);
   }
   revalidateInventory(itemId);
-  return { status: "success", message: `Inventory item updated.${xeroWarning}` };
+  return {
+    status: "success",
+    message: xeroConnected
+      ? "Inventory item updated. Xero sync queued."
+      : "Inventory item updated.",
+  };
 }
 
 export async function adjustInventoryAction(

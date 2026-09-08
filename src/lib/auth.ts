@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { safeInternalPath } from "@/lib/redirects";
 import type { Profile } from "@/lib/types";
@@ -30,7 +31,7 @@ function shouldLogAuthError(error: unknown) {
   return digest !== "DYNAMIC_SERVER_USAGE" && !message.includes("Dynamic server usage");
 }
 
-export async function getSession() {
+export const getSession = cache(async function getSession() {
   try {
     const supabase = await createClient();
     const {
@@ -43,17 +44,13 @@ export async function getSession() {
     }
     return null;
   }
-}
+});
 
-export async function getProfile(): Promise<Profile | null> {
+export const getProfile = cache(async function getProfile(): Promise<Profile | null> {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
+    const user = await getSession();
     if (!user) return null;
-
+    const supabase = await createClient();
     const { data } = await supabase
       .from("profiles")
       .select("*")
@@ -67,9 +64,9 @@ export async function getProfile(): Promise<Profile | null> {
     }
     return null;
   }
-}
+});
 
-export async function requireUser() {
+export const requireUser = cache(async function requireUser() {
   const user = await getSession();
   if (!user) {
     const requestPath = safeInternalPath(
@@ -87,7 +84,7 @@ export async function requireUser() {
   }
 
   return { user, profile };
-}
+});
 
 export async function requireAdmin() {
   const { user, profile } = await requireUser();

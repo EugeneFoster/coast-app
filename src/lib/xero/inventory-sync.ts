@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyInventoryItem } from "@/lib/inventory-classifier";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { InventoryItem } from "@/lib/types";
-import { markXeroConnection, xeroRequest } from "@/lib/xero/client";
+import { getXeroStatus, markXeroConnection, xeroRequest } from "@/lib/xero/client";
 
 interface XeroItemDetails {
   UnitPrice?: number;
@@ -115,11 +115,13 @@ async function finishRun(
     .eq("id", runId);
 }
 
-async function readAllXeroItems() {
+async function readAllXeroItems(modifiedAfter?: string) {
   const all: XeroItem[] = [];
   const seenItemIds = new Set<string>();
   for (let page = 1; page <= 100; page += 1) {
-    const payload = await xeroRequest<XeroItemsResponse>(`/Items?page=${page}`);
+    const payload = await xeroRequest<XeroItemsResponse>(`/Items?page=${page}`, {
+      headers: modifiedAfter ? { "If-Modified-Since": modifiedAfter } : undefined,
+    });
     const batch = Array.isArray(payload.Items) ? payload.Items : [];
     let added = 0;
     for (const item of batch) {
@@ -150,6 +152,36 @@ async function readExistingInventory(supabase: SupabaseClient) {
     if (batch.length < 1_000) break;
   }
   return items;
+}
+
+async function readExistingInventoryForChanges(
+  supabase: SupabaseClient,
+  xeroItems: XeroItem[],
+) {
+  if (xeroItems.length > 1_000) return readExistingInventory(supabase);
+
+  const items = new Map<string, ExistingInventoryItem>();
+  const select = "id, sku, xero_item_id, xero_sync_status, quantity_on_hand, average_cost, active";
+  const ids = xeroItems.map((item) => item.ItemID).filter(Boolean);
+  const skus = xeroItems.map((item) => cleanCode(item.Code ?? "")).filter(Boolean);
+
+  for (const idBatch of chunks(ids)) {
+    const { data, error } = await supabase
+      .from("inventory_items")
+      .select(select)
+      .in("xero_item_id", idBatch);
+    if (error) throw new Error(`Could not match changed Xero items: ${error.message}`);
+    for (const item of (data ?? []) as ExistingInventoryItem[]) items.set(item.id, item);
+  }
+  for (const skuBatch of chunks(skus)) {
+    const { data, error } = await supabase
+      .from("inventory_items")
+      .select(select)
+      .in("sku", skuBatch);
+    if (error) throw new Error(`Could not match changed Xero SKUs: ${error.message}`);
+    for (const item of (data ?? []) as ExistingInventoryItem[]) items.set(item.id, item);
+  }
+  return Array.from(items.values());
 }
 
 async function insertInventoryRows(
@@ -198,14 +230,16 @@ async function updateInventoryRows(
 export async function pullInventoryFromXero(
   supabase: SupabaseClient,
   userId: string,
+  options: { modifiedAfter?: string } = {},
 ): Promise<InventorySyncResult> {
   const runId = await startRun(supabase, userId, "pull");
   const result: InventorySyncResult = { imported: 0, updated: 0, conflicts: 0, failed: 0 };
   try {
-    const [xeroItems, existingItems] = await Promise.all([
-      readAllXeroItems(),
-      readExistingInventory(supabase),
-    ]);
+    const existingPromise = options.modifiedAfter ? null : readExistingInventory(supabase);
+    const xeroItems = await readAllXeroItems(options.modifiedAfter);
+    const existingItems = existingPromise
+      ? await existingPromise
+      : await readExistingInventoryForChanges(supabase, xeroItems);
     const byXeroId = new Map(existingItems.filter((item) => item.xero_item_id).map((item) => [item.xero_item_id!, item]));
     const bySku = new Map(existingItems.map((item) => [item.sku.trim().toUpperCase(), item]));
     const seenNewSkus = new Set<string>();
@@ -330,6 +364,27 @@ export async function pullInventoryFromXero(
     await markXeroConnection({ last_error: message });
     throw caught;
   }
+}
+
+export async function pullRecentInventoryFromXero(
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  const status = await getXeroStatus();
+  if (!status.connected) return { skipped: true as const, result: null };
+
+  const lastPull = status.last_item_pull_at
+    ? new Date(status.last_item_pull_at).getTime()
+    : 0;
+  if (lastPull && Date.now() - lastPull < 45_000) {
+    return { skipped: true as const, result: null };
+  }
+
+  const modifiedAfter = lastPull
+    ? new Date(Math.max(0, lastPull - 2_000)).toISOString()
+    : undefined;
+  const result = await pullInventoryFromXero(supabase, userId, { modifiedAfter });
+  return { skipped: false as const, result };
 }
 
 function xeroPayload(item: InventoryItem) {

@@ -1,13 +1,11 @@
 import Link from "next/link";
-import { AlertTriangle, Grid2X2, ImageIcon, List, PackageOpen, Plus, Search } from "lucide-react";
-import { IntegrationSyncPanel } from "@/components/integration-sync-panel";
+import { Grid2X2, ImageIcon, List, PackageOpen, Plus, Search } from "lucide-react";
 import { requireInventoryViewer } from "@/lib/auth";
 import { canManageInventory, canViewPurchasing } from "@/lib/employee-roles";
 import { formatQuantity, inventoryCategoryLabel } from "@/lib/inventory";
 import { formatCad } from "@/lib/sales";
 import { createClient } from "@/lib/supabase/server";
 import type { InventoryItem } from "@/lib/types";
-import { getXeroStatus } from "@/lib/xero/client";
 
 type InventoryRow = InventoryItem & {
   suppliers: { name: string } | null;
@@ -25,39 +23,63 @@ type InboundLine = {
   } | null;
 };
 
+type CategoryCount = {
+  category: InventoryItem["category"];
+  item_count: number;
+};
+
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; category?: string; location?: string; low?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; category?: string; page?: string }>;
 }) {
   const { profile } = await requireInventoryViewer();
   const canManage = canManageInventory(profile.role);
   const showCost = canViewPurchasing(profile.role);
-  const { q = "", category = "all", location = "all", low = "", page = "1" } = await searchParams;
+  const { q = "", category = "all", page = "1" } = await searchParams;
   const supabase = await createClient();
-  const inventoryPromise = (async () => {
-    const rows: InventoryRow[] = [];
-    for (let offset = 0; ; offset += 1_000) {
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .select("*, suppliers(name)")
-        .order("active", { ascending: false })
-        .order("name")
-        .range(offset, offset + 999);
-      if (error) throw new Error(`Could not load inventory: ${error.message}`);
-      const batch = (data ?? []) as InventoryRow[];
-      rows.push(...batch);
-      if (batch.length < 1_000) break;
-    }
-    return rows;
-  })();
-  const [items, { data: inboundData }, xeroStatus] = await Promise.all([
-    inventoryPromise,
-    supabase
-      .from("purchase_order_items")
-      .select("inventory_item_id, quantity, quantity_received, purchase_orders(id, status, shipping_status, expected_date)"),
-    getXeroStatus(),
+  const pageSize = 100;
+  const requestedPage = Math.max(1, Number.parseInt(page, 10) || 1);
+  const firstVisibleIndex = (requestedPage - 1) * pageSize;
+  const searchTerm = q.trim().slice(0, 100).replace(/[,%()]/g, " ");
+  let inventoryQuery = supabase
+    .from("inventory_items")
+    .select(
+      "id, sku, name, category, unit, quantity_on_hand, average_cost, selling_price, reorder_point, image_url, active, suppliers(name)",
+      { count: "exact" },
+    )
+    .eq("active", true);
+  if (searchTerm) {
+    inventoryQuery = inventoryQuery.or(`name.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`);
+  }
+  if (category !== "all") inventoryQuery = inventoryQuery.eq("category", category);
+
+  const [{ data: itemData, error: inventoryError, count }, { data: categoryData, error: categoryError }] = await Promise.all([
+    inventoryQuery
+      .order("quantity_on_hand", { ascending: false })
+      .order("name")
+      .range(firstVisibleIndex, firstVisibleIndex + pageSize - 1),
+    supabase.rpc("inventory_category_counts"),
   ]);
+  if (inventoryError) throw new Error(`Could not load inventory: ${inventoryError.message}`);
+  if (categoryError) throw new Error(`Could not load inventory categories: ${categoryError.message}`);
+
+  const visibleItems = (itemData ?? []) as unknown as InventoryRow[];
+  const matchingCount = count ?? 0;
+  const categoryCounts = ((categoryData ?? []) as CategoryCount[]).map(({ category: value, item_count }) => ({
+    value,
+    count: Number(item_count),
+  }));
+  const activeCount = categoryCounts.reduce((sum, entry) => sum + entry.count, 0);
+  const pageCount = Math.max(1, Math.ceil(matchingCount / pageSize));
+  const currentPage = Math.min(requestedPage, pageCount);
+
+  const { data: inboundData } = visibleItems.length
+    ? await supabase
+        .from("purchase_order_items")
+        .select("inventory_item_id, quantity, quantity_received, purchase_orders(id, status, shipping_status, expected_date)")
+        .in("inventory_item_id", visibleItems.map((item) => item.id))
+    : { data: [] };
   const inboundLines = (inboundData ?? []) as unknown as InboundLine[];
   const inboundByItem = new Map<string, { quantity: number; statuses: string[]; expected: string | null }>();
   for (const line of inboundLines) {
@@ -71,47 +93,11 @@ export default async function InventoryPage({
     if (order.expected_date && (!current.expected || order.expected_date < current.expected)) current.expected = order.expected_date;
     inboundByItem.set(line.inventory_item_id, current);
   }
-  const activeItems = items.filter((item) => item.active);
-  const lowStock = activeItems.filter(
-    (item) => Number(item.quantity_on_hand) <= Number(item.reorder_point),
-  );
-  const inventoryValue = activeItems.reduce(
-    (sum, item) => sum + Number(item.quantity_on_hand) * Number(item.average_cost),
-    0,
-  );
-  const normalizedQuery = q.trim().toLowerCase();
-  const matchingItems = activeItems.filter((item) => {
-    const isLow = Number(item.quantity_on_hand) <= Number(item.reorder_point);
-    const matchesQuery =
-      !normalizedQuery ||
-      item.name.toLowerCase().includes(normalizedQuery) ||
-      item.sku.toLowerCase().includes(normalizedQuery) ||
-      (item.suppliers?.name ?? "").toLowerCase().includes(normalizedQuery);
-    return (
-      matchesQuery &&
-      (category === "all" || item.category === category) &&
-      (location === "all" || (item.location ?? "") === location) &&
-      (!low || isLow)
-    );
-  });
-  const pageSize = 100;
-  const requestedPage = Math.max(1, Number.parseInt(page, 10) || 1);
-  const pageCount = Math.max(1, Math.ceil(matchingItems.length / pageSize));
-  const currentPage = Math.min(requestedPage, pageCount);
-  const firstVisibleIndex = (currentPage - 1) * pageSize;
-  const visibleItems = matchingItems.slice(firstVisibleIndex, firstVisibleIndex + pageSize);
-  const categories = Array.from(new Set(activeItems.map((item) => item.category))).sort();
-  const categoryCounts = categories.map((value) => ({
-    value,
-    count: activeItems.filter((item) => item.category === value).length,
-  }));
-  const locations = Array.from(
-    new Set(activeItems.map((item) => item.location).filter((value): value is string => Boolean(value))),
-  ).sort();
+  const categories = categoryCounts.map(({ value }) => value);
 
   function filterHref(next: Record<string, string | undefined>) {
     const params = new URLSearchParams();
-    const values = { q, category, location, low, page: undefined, ...next };
+    const values = { q, category, page: undefined, ...next };
     for (const [key, value] of Object.entries(values)) {
       if (value && value !== "all") params.set(key, value);
     }
@@ -123,7 +109,7 @@ export default async function InventoryPage({
     <main className="mt-4 md:mt-5">
       <div className="flex items-center justify-end gap-2">
         <p className="mr-auto hidden text-sm text-graph md:block">
-          {matchingItems.length} of {activeItems.length} active SKUs
+          {matchingCount === activeCount ? `${activeCount} active SKUs` : `${matchingCount} of ${activeCount} active SKUs`}
         </p>
         {canManage && (
           <Link href="/inventory/items/new" className="btn-primary flex h-10 items-center gap-2 px-4 text-sm">
@@ -133,15 +119,9 @@ export default async function InventoryPage({
         )}
       </div>
 
-      <IntegrationSyncPanel
-        xero={xeroStatus}
-        canManage={canManage}
-        inboundOrders={new Set(inboundLines.filter((line) => line.purchase_orders && ["ordered", "partially_received"].includes(line.purchase_orders.status)).map((line) => line.purchase_orders!.id)).size}
-      />
-
       {categoryCounts.length > 0 && (
         <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-          <Link href={filterHref({ category: "all" })} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs ${category === "all" ? "border-ink bg-ink text-bone" : "border-rule bg-paper text-graph"}`}>All {activeItems.length}</Link>
+          <Link href={filterHref({ category: "all" })} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs ${category === "all" ? "border-ink bg-ink text-bone" : "border-rule bg-paper text-graph"}`}>All {activeCount}</Link>
           {categoryCounts.map(({ value, count }) => (
             <Link key={value} href={filterHref({ category: value })} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs ${category === value ? "border-ink bg-ink text-bone" : "border-rule bg-paper text-graph"}`}>
               {inventoryCategoryLabel(value)} {count}
@@ -150,30 +130,7 @@ export default async function InventoryPage({
         </div>
       )}
 
-      <div className={`mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 ${showCost ? "" : "md:max-w-3xl"}`}>
-        <div className="relative rounded-[4px] border border-rule bg-paper p-3.5 md:p-4">
-          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-graph">Active items</p>
-          <p className="mt-2.5 font-display text-[26px] font-medium leading-none text-ink">{activeItems.length}</p>
-          <p className="mt-2 text-xs text-graph">{matchingItems.length} shown after filters</p>
-        </div>
-        <div className={`relative rounded-[4px] border bg-paper p-3.5 md:p-4 ${lowStock.length ? "border-weld" : "border-rule"}`}>
-          <p className={`font-mono text-[10px] uppercase tracking-[0.16em] ${lowStock.length ? "text-weld-text" : "text-graph"}`}>At / below reorder</p>
-          <p className="mt-2.5 font-display text-[26px] font-medium leading-none text-ink">{lowStock.length}</p>
-          <p className={`mt-2 flex items-center gap-1.5 text-xs ${lowStock.length ? "text-weld-text" : "text-graph"}`}>
-            <AlertTriangle size={14} strokeWidth={1.5} aria-hidden />
-            Raise a purchase order
-          </p>
-        </div>
-        {showCost && (
-          <div className="relative col-span-2 rounded-[4px] border border-rule bg-paper p-3.5 md:col-span-1 md:p-4">
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-graph">Stock value</p>
-            <p className="mt-2.5 font-display text-[26px] font-medium leading-none text-ink">{formatCad(inventoryValue)}</p>
-            <p className="mt-2 text-xs text-graph">Weighted average cost</p>
-          </div>
-        )}
-      </div>
-
-      <form action="/inventory" className="mt-4 grid gap-2 md:mt-5 md:grid-cols-[minmax(260px,1fr)_auto_auto_auto_auto]">
+      <form action="/inventory" className="mt-4 grid gap-2 md:mt-5 md:grid-cols-[minmax(260px,1fr)_auto_auto_auto]">
         <label className="flex h-11 items-center gap-2 rounded-[4px] border border-rule bg-paper px-3 text-graph md:h-10">
           <Search size={17} strokeWidth={1.5} aria-hidden />
           <input
@@ -190,11 +147,6 @@ export default async function InventoryPage({
             <option key={value} value={value}>{inventoryCategoryLabel(value)}</option>
           ))}
         </select>
-        <select name="location" defaultValue={location} aria-label="Location" className="hidden h-10 rounded-[4px] border border-rule bg-paper px-3 text-[13px] text-ink md:block">
-          <option value="all">Location: All</option>
-          {locations.map((value) => <option key={value} value={value}>{value}</option>)}
-        </select>
-        {low && <input type="hidden" name="low" value="1" />}
         <button type="submit" className="btn-secondary hidden h-10 px-3 text-[13px] md:block">Apply</button>
         <div className="hidden overflow-hidden rounded-[4px] border border-rule md:flex">
           <span className="flex h-10 w-10 items-center justify-center bg-ink text-bone"><List size={17} strokeWidth={1.5} aria-hidden /></span>
@@ -203,14 +155,7 @@ export default async function InventoryPage({
       </form>
 
       <div className="mt-2 flex items-center gap-2 md:hidden">
-        <Link
-          href={filterHref({ low: low ? undefined : "1" })}
-          className={`flex h-11 items-center gap-2 rounded-[4px] border px-3 text-[13px] font-medium ${low ? "border-weld bg-weld/10 text-weld-text" : "border-rule bg-paper text-ink"}`}
-        >
-          <AlertTriangle size={16} strokeWidth={1.5} aria-hidden />
-          Low {lowStock.length}
-        </Link>
-        {(q || category !== "all" || location !== "all" || low) && (
+        {(q || category !== "all") && (
           <Link href="/inventory" className="text-[13px] text-graph">Clear filters</Link>
         )}
       </div>
@@ -259,12 +204,11 @@ export default async function InventoryPage({
       </div>
 
       <div className="mt-4 hidden overflow-x-auto rounded-[4px] border border-rule bg-paper md:block">
-        <table className="w-full min-w-[56rem] border-collapse text-left text-sm">
+        <table className="w-full min-w-[50rem] border-collapse text-left text-sm">
           <thead className="border-b border-rule bg-ink/[0.03] font-mono text-[10px] uppercase tracking-[0.14em] text-graph">
             <tr>
               <th className="px-4 py-2.5 font-normal">SKU / item</th>
               <th className="px-4 py-2.5 font-normal">Category</th>
-              <th className="px-4 py-2.5 font-normal">Location</th>
               <th className="px-4 py-2.5 text-right font-normal">On hand</th>
               <th className="px-4 py-2.5 font-normal">Incoming</th>
               <th className="px-4 py-2.5 text-right font-normal">Reorder</th>
@@ -294,7 +238,6 @@ export default async function InventoryPage({
                     </div>
                   </td>
                   <td className="px-4 py-3 text-graph">{inventoryCategoryLabel(item.category)}</td>
-                  <td className="px-4 py-3 text-graph">{item.location ?? "—"}</td>
                   <td className={`px-4 py-3 text-right font-mono ${isLow ? "font-medium text-weld-text" : "text-ink"}`}>{formatQuantity(item.quantity_on_hand, item.unit)}</td>
                   <td className="px-4 py-3">
                     {inbound ? (
@@ -314,7 +257,7 @@ export default async function InventoryPage({
         </table>
       </div>
 
-      {matchingItems.length > pageSize && (
+      {matchingCount > pageSize && (
         <nav className="mt-4 flex items-center justify-between gap-3" aria-label="Inventory pages">
           <Link
             href={filterHref({ page: String(Math.max(1, currentPage - 1)) })}
@@ -324,7 +267,7 @@ export default async function InventoryPage({
             Previous
           </Link>
           <p className="text-xs text-graph">
-            Page {currentPage} of {pageCount} · items {firstVisibleIndex + 1}–{Math.min(firstVisibleIndex + pageSize, matchingItems.length)} of {matchingItems.length}
+            Page {currentPage} of {pageCount} · items {firstVisibleIndex + 1}–{Math.min(firstVisibleIndex + pageSize, matchingCount)} of {matchingCount}
           </p>
           <Link
             href={filterHref({ page: String(Math.min(pageCount, currentPage + 1)) })}
@@ -336,7 +279,7 @@ export default async function InventoryPage({
         </nav>
       )}
 
-      {matchingItems.length === 0 && (
+      {matchingCount === 0 && (
         <div className="mt-4 rounded-[4px] border border-dashed border-rule bg-paper px-4 py-12 text-center">
           <p className="text-sm text-graph">No inventory items match these filters.</p>
           <Link href="/inventory" className="mt-3 inline-flex text-sm font-medium text-weld-text">Clear filters</Link>

@@ -117,16 +117,6 @@ export function InventoryItemForm({
           />
         </label>
         <label className={labelClass}>
-          Bin / location
-          <input
-            name="location"
-            placeholder="Warehouse A · Bin 12"
-            defaultValue={item?.location ?? ""}
-            disabled={pending}
-            className={inputClass}
-          />
-        </label>
-        <label className={labelClass}>
           Manufacturer / brand
           <input
             name="manufacturer"

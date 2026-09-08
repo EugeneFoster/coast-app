@@ -136,11 +136,7 @@ export default async function InventoryItemPage({
       </div>
 
       <section className="mt-6 rounded border border-rule bg-paper p-5">
-        <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
-          <div>
-            <dt className="text-xs text-graph">Location</dt>
-            <dd className="mt-1 text-ink">{item.location ?? "—"}</dd>
-          </div>
+        <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <dt className="text-xs text-graph">Preferred supplier</dt>
             <dd className="mt-1 text-ink">{item.suppliers?.name ?? "—"}</dd>

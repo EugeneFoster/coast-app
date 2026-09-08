@@ -77,6 +77,14 @@ export default async function PurchaseOrdersPage() {
                   </Link>
                 </td>
                 <td className="px-4 py-3">
+                  {purchaseOrder.suppliers?.name ?? "Supplier"}
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`rounded border px-2 py-1 text-xs ${statusClass[purchaseOrder.status]}`}>
+                    {purchaseOrderStatusLabel(purchaseOrder.status)}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
                   <span className={`rounded border px-2 py-1 text-xs ${purchaseOrder.shipping_status === "backordered" ? "border-weld text-weld-text" : purchaseOrder.shipping_status === "shipped" ? "border-blue-300 text-blue-700" : "border-rule text-graph"}`}>
                     {shippingStatusLabel(purchaseOrder.shipping_status)}
                   </span>
@@ -85,12 +93,6 @@ export default async function PurchaseOrdersPage() {
                       {purchaseOrder.tracking_number || "Track"}
                     </a>
                   )}
-                </td>
-                <td className="px-4 py-3 text-ink">{purchaseOrder.suppliers?.name ?? "Supplier"}</td>
-                <td className="px-4 py-3">
-                  <span className={`rounded border px-2 py-1 text-xs ${statusClass[purchaseOrder.status]}`}>
-                    {purchaseOrderStatusLabel(purchaseOrder.status)}
-                  </span>
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-graph">
                   {formatShortDate(purchaseOrder.order_date)}

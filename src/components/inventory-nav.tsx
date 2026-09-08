@@ -13,7 +13,13 @@ const links = [
   },
 ];
 
-export function InventoryNav({ canViewPurchasing }: { canViewPurchasing: boolean }) {
+export function InventoryNav({
+  canViewPurchasing,
+  inboundOrders,
+}: {
+  canViewPurchasing: boolean;
+  inboundOrders: number;
+}) {
   const pathname = usePathname();
 
   return (
@@ -32,7 +38,7 @@ export function InventoryNav({ canViewPurchasing }: { canViewPurchasing: boolean
                 active ? "font-medium text-ink" : "text-graph hover:text-ink"
               }`}
             >
-              {link.label}
+              {link.label}{link.href === "/inventory/purchase-orders" ? ` (${inboundOrders})` : ""}
               {active && (
                 <span className="absolute bottom-[-1px] left-0 h-0.5 w-full bg-weld" />
               )}
