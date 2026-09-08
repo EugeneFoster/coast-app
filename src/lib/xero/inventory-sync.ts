@@ -115,11 +115,21 @@ async function finishRun(
 
 async function readAllXeroItems() {
   const all: XeroItem[] = [];
+  const seenItemIds = new Set<string>();
   for (let page = 1; page <= 100; page += 1) {
     const payload = await xeroRequest<XeroItemsResponse>(`/Items?page=${page}`);
     const batch = Array.isArray(payload.Items) ? payload.Items : [];
-    all.push(...batch);
-    if (batch.length < 100) break;
+    let added = 0;
+    for (const item of batch) {
+      if (!item.ItemID || seenItemIds.has(item.ItemID)) continue;
+      seenItemIds.add(item.ItemID);
+      all.push(item);
+      added += 1;
+    }
+    // Some Xero organisations return the complete Items collection even when
+    // `page` is supplied. Stop when the next page contains no new IDs so the
+    // same catalogue is never processed repeatedly.
+    if (batch.length < 100 || added === 0) break;
   }
   return all;
 }

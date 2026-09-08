@@ -28,25 +28,36 @@ type InboundLine = {
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; category?: string; location?: string; low?: string }>;
+  searchParams: Promise<{ q?: string; category?: string; location?: string; low?: string; page?: string }>;
 }) {
   const { profile } = await requireInventoryViewer();
   const canManage = canManageInventory(profile.role);
   const showCost = canViewPurchasing(profile.role);
-  const { q = "", category = "all", location = "all", low = "" } = await searchParams;
+  const { q = "", category = "all", location = "all", low = "", page = "1" } = await searchParams;
   const supabase = await createClient();
-  const [{ data }, { data: inboundData }, xeroStatus] = await Promise.all([
-    supabase
-      .from("inventory_items")
-      .select("*, suppliers(name)")
-      .order("active", { ascending: false })
-      .order("name"),
+  const inventoryPromise = (async () => {
+    const rows: InventoryRow[] = [];
+    for (let offset = 0; ; offset += 1_000) {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .select("*, suppliers(name)")
+        .order("active", { ascending: false })
+        .order("name")
+        .range(offset, offset + 999);
+      if (error) throw new Error(`Could not load inventory: ${error.message}`);
+      const batch = (data ?? []) as InventoryRow[];
+      rows.push(...batch);
+      if (batch.length < 1_000) break;
+    }
+    return rows;
+  })();
+  const [items, { data: inboundData }, xeroStatus] = await Promise.all([
+    inventoryPromise,
     supabase
       .from("purchase_order_items")
       .select("inventory_item_id, quantity, quantity_received, purchase_orders(id, status, shipping_status, expected_date)"),
     getXeroStatus(),
   ]);
-  const items = (data ?? []) as InventoryRow[];
   const inboundLines = (inboundData ?? []) as unknown as InboundLine[];
   const inboundByItem = new Map<string, { quantity: number; statuses: string[]; expected: string | null }>();
   for (const line of inboundLines) {
@@ -69,7 +80,7 @@ export default async function InventoryPage({
     0,
   );
   const normalizedQuery = q.trim().toLowerCase();
-  const visibleItems = items.filter((item) => {
+  const matchingItems = items.filter((item) => {
     const isLow = item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
     const matchesQuery =
       !normalizedQuery ||
@@ -83,6 +94,12 @@ export default async function InventoryPage({
       (!low || isLow)
     );
   });
+  const pageSize = 100;
+  const requestedPage = Math.max(1, Number.parseInt(page, 10) || 1);
+  const pageCount = Math.max(1, Math.ceil(matchingItems.length / pageSize));
+  const currentPage = Math.min(requestedPage, pageCount);
+  const firstVisibleIndex = (currentPage - 1) * pageSize;
+  const visibleItems = matchingItems.slice(firstVisibleIndex, firstVisibleIndex + pageSize);
   const categories = Array.from(new Set(activeItems.map((item) => item.category))).sort();
   const categoryCounts = categories.map((value) => ({
     value,
@@ -94,7 +111,7 @@ export default async function InventoryPage({
 
   function filterHref(next: Record<string, string | undefined>) {
     const params = new URLSearchParams();
-    const values = { q, category, location, low, ...next };
+    const values = { q, category, location, low, page: undefined, ...next };
     for (const [key, value] of Object.entries(values)) {
       if (value && value !== "all") params.set(key, value);
     }
@@ -106,7 +123,7 @@ export default async function InventoryPage({
     <main className="mt-4 md:mt-5">
       <div className="flex items-center justify-end gap-2">
         <p className="mr-auto hidden text-sm text-graph md:block">
-          {visibleItems.length} of {activeItems.length} active SKUs
+          {matchingItems.length} of {activeItems.length} active SKUs
         </p>
         {canManage && (
           <Link href="/inventory/items/new" className="btn-primary flex h-10 items-center gap-2 px-4 text-sm">
@@ -137,7 +154,7 @@ export default async function InventoryPage({
         <div className="relative rounded-[4px] border border-rule bg-paper p-3.5 md:p-4">
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-graph">Active items</p>
           <p className="mt-2.5 font-display text-[26px] font-medium leading-none text-ink">{activeItems.length}</p>
-          <p className="mt-2 text-xs text-graph">{visibleItems.length} shown after filters</p>
+          <p className="mt-2 text-xs text-graph">{matchingItems.length} shown after filters</p>
         </div>
         <div className={`relative rounded-[4px] border bg-paper p-3.5 md:p-4 ${lowStock.length ? "border-weld" : "border-rule"}`}>
           <p className={`font-mono text-[10px] uppercase tracking-[0.16em] ${lowStock.length ? "text-weld-text" : "text-graph"}`}>At / below reorder</p>
@@ -297,7 +314,29 @@ export default async function InventoryPage({
         </table>
       </div>
 
-      {visibleItems.length === 0 && (
+      {matchingItems.length > pageSize && (
+        <nav className="mt-4 flex items-center justify-between gap-3" aria-label="Inventory pages">
+          <Link
+            href={filterHref({ page: String(Math.max(1, currentPage - 1)) })}
+            aria-disabled={currentPage === 1}
+            className={`btn-secondary flex h-9 items-center px-3 text-xs ${currentPage === 1 ? "pointer-events-none opacity-40" : ""}`}
+          >
+            Previous
+          </Link>
+          <p className="text-xs text-graph">
+            Page {currentPage} of {pageCount} · items {firstVisibleIndex + 1}–{Math.min(firstVisibleIndex + pageSize, matchingItems.length)} of {matchingItems.length}
+          </p>
+          <Link
+            href={filterHref({ page: String(Math.min(pageCount, currentPage + 1)) })}
+            aria-disabled={currentPage === pageCount}
+            className={`btn-secondary flex h-9 items-center px-3 text-xs ${currentPage === pageCount ? "pointer-events-none opacity-40" : ""}`}
+          >
+            Next
+          </Link>
+        </nav>
+      )}
+
+      {matchingItems.length === 0 && (
         <div className="mt-4 rounded-[4px] border border-dashed border-rule bg-paper px-4 py-12 text-center">
           <p className="text-sm text-graph">No inventory items match these filters.</p>
           <Link href="/inventory" className="mt-3 inline-flex text-sm font-medium text-weld-text">Clear filters</Link>
