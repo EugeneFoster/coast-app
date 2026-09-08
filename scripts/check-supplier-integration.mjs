@@ -389,24 +389,190 @@ assert.ok(
 // The real adapters degrade honestly
 // ---------------------------------------------------------------------------
 
+// Mercury and Western Marine are not activated yet: they must say so rather
+// than invent results. Marine Parts Supply is activated, so against a host that
+// does not exist it reports a transport failure instead.
 invalidateSupplierCache();
 const real = await searchSuppliers({ query: "8M0123456", perSupplierTimeoutMs: 3_000 });
-for (const id of SUPPLIER_IDS) {
-  assert.equal(
-    real.supplierStatus[id],
-    "portal_contract_unconfirmed",
-    `${id} should report its unverified portal contract rather than inventing results`,
-  );
-}
-assert.equal(real.results.length, 0, "an unverified adapter returns no data at all");
+assert.equal(real.supplierStatus.mercury, "portal_contract_unconfirmed");
+assert.equal(real.supplierStatus.westernmarine, "portal_contract_unconfirmed");
+assert.ok(
+  ["unavailable", "timeout", "auth_failed"].includes(real.supplierStatus.marinepartssupply),
+  `an activated adapter pointed at a dead host reports a transport failure, got ${real.supplierStatus.marinepartssupply}`,
+);
+assert.equal(real.results.length, 0, "no adapter fabricated a result");
 
-for (const adapter of Object.values(getSupplierRegistry())) {
-  const health = await adapter.healthCheck();
+const registry = getSupplierRegistry();
+for (const id of ["mercury", "westernmarine"]) {
+  const health = await registry[id].healthCheck();
   assert.equal(health.state, "portal_contract_unconfirmed");
   assert.ok(health.detail.length > 0, "health checks say what still needs confirming");
+}
+for (const adapter of Object.values(registry)) {
+  const health = await adapter.healthCheck();
   for (const secret of Object.values(SECRETS)) {
     assert.ok(!health.detail.includes(secret), "health detail carries no credentials");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Marine Parts Supply field mapping, against a captured real response
+// ---------------------------------------------------------------------------
+
+// Recorded from https://marinepartssupply.com/api on 2026-09-08. The dealer
+// price is deliberately different from retail here so the two cannot be
+// silently mapped onto the same field.
+const MPS_SEARCH_FIXTURE = {
+  results: [
+    {
+      id: 9567,
+      part_code: "18-2001",
+      code_desc1: "OIL SEAL",
+      code_desc2: "",
+      ecommerce_desc: "Oil Seal",
+      qty_onhand: 2,
+      qty_bo: 0,
+      qty_resv: 0,
+      is_instock: true,
+      stock_status: "in",
+      price_retail: 17.52,
+      current_price: 15.2,
+      vendor1_code: "M1162",
+      vendor1_friendly_name: "Sierra",
+      status: "active",
+      media_links: [{ media_asset_id: 8533, preference: 100 }],
+      matched_xrefs: [],
+    },
+  ],
+  total: 1,
+  limit: 25,
+  offset: 0,
+};
+
+const MPS_DETAIL_FIXTURE = {
+  part_code: "18-2001",
+  ecommerce_desc: "Oil Seal",
+  qty_available: 2,
+  stock_status: "in",
+  price_retail: 17.52,
+  current_price: 15.2,
+  vendor1_friendly_name: "Sierra",
+  images: [{ asset_id: 8533, preference: 100, title: "18-2001_2.jpg" }],
+  xrefs: ["03099930947", "47-2001"],
+  substitutes: [{ part_code: "BRP330137", code_desc1: "SEAL, DRL 5-PK", qty_available: 6 }],
+};
+
+const requestLog = [];
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+  const href = String(url);
+  requestLog.push({ href, init });
+  const json = (body, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  if (href.includes("/api/auth/login")) {
+    // The deployed API answers camelCase even though its OpenAPI document says
+    // snake_case; the adapter must accept the shape the service actually sends.
+    return json({ accessToken: "test-token", refreshToken: "r", tokenType: "bearer" });
+  }
+  if (href.includes("/api/inventory/search")) {
+    return json(MPS_SEARCH_FIXTURE);
+  }
+  if (href.includes("/api/inventory/parts/")) {
+    return json(MPS_DETAIL_FIXTURE);
+  }
+  return json({ detail: "Not Found" }, 404);
+};
+
+try {
+  const mps = registry.marinepartssupply;
+  await mps.close();
+  invalidateSupplierCache();
+
+  const rows = await mps.searchPart("18-2001");
+  assert.equal(rows.length, 1);
+  const row = rows[0];
+
+  assert.equal(row.partNumber, "18-2001");
+  assert.equal(row.exactMatch, true);
+  assert.equal(row.description, "Oil Seal");
+  assert.equal(row.manufacturer, "Sierra");
+  assert.equal(row.dealerCost, 15.2, "current_price is the account price");
+  assert.equal(row.listPrice, 17.52, "price_retail is list");
+  assert.notEqual(row.dealerCost, row.listPrice, "dealer and retail stay distinct");
+  assert.equal(row.stockStatus, "in_stock");
+  assert.equal(row.quantityAvailable, 2);
+  assert.equal(row.backorder, false);
+  assert.equal(row.currency, null, "the API publishes no currency, so none is claimed");
+  assert.equal(row.warehouse, null, "an unpublished field stays null");
+  assert.equal(
+    row.productUrl,
+    "https://mps.example.test/parts/18-2001",
+    "product link is built from the configured origin",
+  );
+  assert.equal(
+    row.imageUrl,
+    "https://mps.example.test/api/media-api/sized/catalog_card/8533.jpg",
+    "image link uses the media preset path",
+  );
+
+  // The login must be a form-encoded OAuth2 password grant, and the search must
+  // carry the bearer token that came back.
+  const loginCall = requestLog.find((entry) => entry.href.includes("/api/auth/login"));
+  assert.ok(loginCall, "the adapter logged in before searching");
+  assert.equal(loginCall.init.method, "POST");
+  assert.match(String(loginCall.init.headers["content-type"]), /form-urlencoded/);
+  assert.match(String(loginCall.init.body), /grant_type=password/);
+
+  const searchCall = requestLog.find((entry) => entry.href.includes("/api/inventory/search"));
+  assert.equal(searchCall.init.headers.authorization, "Bearer test-token");
+  assert.ok(
+    !JSON.stringify(rows).includes(SECRETS.marinepartssupply_password),
+    "the password never reaches a result",
+  );
+
+  // A never-anonymous rule: searching without a session would report retail as
+  // dealer cost, so exactly one login precedes the search.
+  assert.equal(
+    requestLog.filter((entry) => entry.href.includes("/api/auth/login")).length,
+    1,
+    "one login serves the search",
+  );
+
+  // Supersession comes from the detail endpoint.
+  const detail = await mps.getPartDetails("18-2001");
+  assert.equal(detail.supersededBy, "BRP330137", "substitutes carry the replacement number");
+  assert.equal(detail.matchType, "superseded", "a replacement is never an exact match");
+  assert.deepEqual(detail.replaces, ["03099930947", "47-2001"], "xrefs are the numbers it replaces");
+
+  // An expired bearer token re-authenticates once and succeeds.
+  const beforeRelogin = requestLog.filter((e) => e.href.includes("/api/auth/login")).length;
+  let rejectedOnce = false;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes("/api/inventory/search") && !rejectedOnce) {
+      rejectedOnce = true;
+      requestLog.push({ href, init });
+      return new Response("{}", { status: 401, headers: { "content-type": "application/json" } });
+    }
+    return previousFetch(url, init);
+  };
+  invalidateSupplierCache();
+  const afterExpiry = await mps.searchPart("18-2001");
+  assert.equal(afterExpiry.length, 1, "the search succeeds after re-authenticating");
+  assert.equal(
+    requestLog.filter((e) => e.href.includes("/api/auth/login")).length,
+    beforeRelogin + 1,
+    "exactly one extra login was performed",
+  );
+
+  await mps.close();
+} finally {
+  globalThis.fetch = realFetch;
 }
 
 console.log("Supplier integration checks passed.");

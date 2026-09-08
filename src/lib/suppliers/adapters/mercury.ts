@@ -28,9 +28,9 @@ const CONTRACT: PortalContract = {
   searchPath: null,
   sessionProbePath: null,
   openQuestions: [
-    "MercNET returns HTTP 403 to server-side requests — confirm whether the dealer account may query it programmatically, or whether an allow-listed IP / official Mercury API credential is required.",
-    "Confirm the authenticated login URL and the exact form field names (or the SSO/OIDC flow) used by MercNET.",
-    "Confirm whether sign-in requires MFA or a device-trust step; if so the integration can only run with an operator-established session.",
+    "BLOCKED: MercNET is normally signed into by hand and appears to carry anti-scraping protection — the account owner reports a manual session is the usual route. An unattended integration therefore needs either an official Mercury dealer API credential or an allow-listed service account. Confirm which is available before going further.",
+    "If an official API exists for this account, its base URL and credential scheme replace everything below.",
+    "Otherwise: confirm the login URL and exact form field names (or the SSO/OIDC flow), and whether sign-in requires MFA or a device-trust step.",
     "Confirm whether parts lookup has a JSON endpoint, and capture one real search response for a known number.",
     "Confirm how MercNET expresses supersession (field name and whether it chains through multiple generations).",
     "Confirm the field names for dealer cost vs list price, warehouse, quantity and ETA, and the currency they are quoted in.",

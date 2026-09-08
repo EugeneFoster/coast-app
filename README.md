@@ -307,14 +307,18 @@ request, so the integration cannot be pointed at an arbitrary host.
 
 ### Supplier activation status
 
-The adapter layer, session handling, search API, approval workflow, and UI are
-complete and exercised by checks. The three portals themselves are **not yet
-activated**: their request/response shapes could not be verified from the build
-environment, so rather than guess at selectors each adapter declares an explicit
-portal contract and reports `PORTAL_CONTRACT_UNCONFIRMED` until it is filled in.
-See the `openQuestions` list in each file under `src/lib/suppliers/adapters/`.
-Activating one supplier is a data change plus a response parser; it needs no
-change to the search API, the approval workflow, the UI, or the Xero seam.
+| Supplier | State | Notes |
+|---|---|---|
+| **Marine Parts Supply** | **Live** | FastAPI backend, OAuth2 password grant, `GET /api/inventory/search`. Verified end to end against the dealer account: the authenticated `current_price` is the account price and differs from `price_retail`. Supersession comes from the part detail endpoint's `substitutes`. |
+| Western Marine | Login mapped, search pending | Portal is Strategi by ADVANCED BusinessLink over IBM i. The HTTP Basic handshake (`/Store/homepage.html?Location=001` → `*AUTHENTICATE` → Basic) is implemented; the authenticated Store search endpoint still needs capturing. `Location=001` is Western Marine, `002` is Transat Marine. |
+| Mercury | Blocked | MercNET answers 403 to server-side requests and is normally signed into by hand. Needs either an official dealer API credential or an allow-listed service account — this integration does not attempt to defeat bot protection. |
+
+An adapter that is not activated reports `PORTAL_CONTRACT_UNCONFIRMED`, which the
+search fan-out isolates per supplier, so the others keep working. Each file under
+`src/lib/suppliers/adapters/` carries an `openQuestions` list naming exactly what
+is still needed. Activating one is a contract change plus a response parser; it
+needs no change to the search API, the approval workflow, the UI, or the Xero
+seam.
 
 ### Xero
 
