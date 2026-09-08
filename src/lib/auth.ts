@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { safeInternalPath } from "@/lib/redirects";
 import type { Profile } from "@/lib/types";
 import {
   canManageBilling,
@@ -70,12 +72,18 @@ export async function getProfile(): Promise<Profile | null> {
 export async function requireUser() {
   const user = await getSession();
   if (!user) {
-    redirect("/login");
+    const requestPath = safeInternalPath(
+      (await headers()).get("x-coast-request-path"),
+    );
+    redirect(`/login?next=${encodeURIComponent(requestPath)}`);
   }
 
   const profile = await getProfile();
   if (!profile || profile.status !== "active") {
-    redirect("/login");
+    const requestPath = safeInternalPath(
+      (await headers()).get("x-coast-request-path"),
+    );
+    redirect(`/login?next=${encodeURIComponent(requestPath)}`);
   }
 
   return { user, profile };

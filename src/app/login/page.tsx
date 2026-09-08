@@ -1,13 +1,15 @@
 import { signIn } from "@/lib/actions/auth";
 import { sanitizeLoginErrorParam } from "@/lib/auth-messages";
+import { safeInternalPath } from "@/lib/redirects";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { error: rawError } = await searchParams;
+  const { error: rawError, next: requestedNext } = await searchParams;
   const error = sanitizeLoginErrorParam(rawError);
+  const next = safeInternalPath(requestedNext);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
@@ -25,6 +27,7 @@ export default async function LoginPage({
           action={signIn}
           className="space-y-4 rounded border border-rule bg-paper p-6"
         >
+          <input type="hidden" name="next" value={next} />
           {error && (
             <p className="rounded border border-weld/40 bg-weld/10 px-3 py-2 text-sm text-weld">
               {error}

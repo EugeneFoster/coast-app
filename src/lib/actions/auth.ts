@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { LOGIN_ERRORS, toLoginError } from "@/lib/auth-messages";
+import { safeInternalPath } from "@/lib/redirects";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { UserRole } from "@/lib/types";
@@ -131,9 +132,11 @@ export async function signIn(formData: FormData) {
     .trim()
     .toLowerCase();
   const password = ((formData.get("password") as string | null) ?? "").trim();
+  const next = safeInternalPath(formData.get("next"));
 
   const fail = (message: string): never => {
-    redirect(`/login?error=${encodeURIComponent(message)}`);
+    const params = new URLSearchParams({ error: message, next });
+    redirect(`/login?${params.toString()}`);
   };
 
   if (!email || !password) {
@@ -167,5 +170,5 @@ export async function signIn(formData: FormData) {
     fail(LOGIN_ERRORS.unavailable);
   }
 
-  redirect("/projects");
+  redirect(next);
 }

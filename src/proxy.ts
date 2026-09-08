@@ -2,7 +2,12 @@ import { type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 export async function proxy(request: NextRequest) {
-  return updateSession(request);
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(
+    "x-coast-request-path",
+    `${request.nextUrl.pathname}${request.nextUrl.search}`,
+  );
+  return updateSession(request, requestHeaders);
 }
 
 export const config = {
