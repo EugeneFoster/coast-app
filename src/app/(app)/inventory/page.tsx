@@ -1,13 +1,8 @@
 import Link from "next/link";
+import { AlertTriangle, Grid2X2, List, Plus, Search } from "lucide-react";
 import { requireInventoryViewer } from "@/lib/auth";
-import {
-  canManageInventory,
-  canViewPurchasing,
-} from "@/lib/employee-roles";
-import {
-  formatQuantity,
-  inventoryCategoryLabel,
-} from "@/lib/inventory";
+import { canManageInventory, canViewPurchasing } from "@/lib/employee-roles";
+import { formatQuantity, inventoryCategoryLabel } from "@/lib/inventory";
 import { formatCad } from "@/lib/sales";
 import { createClient } from "@/lib/supabase/server";
 import type { InventoryItem } from "@/lib/types";
@@ -16,10 +11,15 @@ type InventoryRow = InventoryItem & {
   suppliers: { name: string } | null;
 };
 
-export default async function InventoryPage() {
+export default async function InventoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; category?: string; location?: string; low?: string }>;
+}) {
   const { profile } = await requireInventoryViewer();
   const canManage = canManageInventory(profile.role);
   const showCost = canViewPurchasing(profile.role);
+  const { q = "", category = "all", location = "all", low = "" } = await searchParams;
   const supabase = await createClient();
   const { data } = await supabase
     .from("inventory_items")
@@ -35,103 +35,192 @@ export default async function InventoryPage() {
     (sum, item) => sum + Number(item.quantity_on_hand) * Number(item.average_cost),
     0,
   );
+  const normalizedQuery = q.trim().toLowerCase();
+  const visibleItems = items.filter((item) => {
+    const isLow = item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
+    const matchesQuery =
+      !normalizedQuery ||
+      item.name.toLowerCase().includes(normalizedQuery) ||
+      item.sku.toLowerCase().includes(normalizedQuery) ||
+      (item.suppliers?.name ?? "").toLowerCase().includes(normalizedQuery);
+    return (
+      matchesQuery &&
+      (category === "all" || item.category === category) &&
+      (location === "all" || (item.location ?? "") === location) &&
+      (!low || isLow)
+    );
+  });
+  const categories = Array.from(new Set(activeItems.map((item) => item.category))).sort();
+  const locations = Array.from(
+    new Set(activeItems.map((item) => item.location).filter((value): value is string => Boolean(value))),
+  ).sort();
+
+  function filterHref(next: Record<string, string | undefined>) {
+    const params = new URLSearchParams();
+    const values = { q, category, location, low, ...next };
+    for (const [key, value] of Object.entries(values)) {
+      if (value && value !== "all") params.set(key, value);
+    }
+    const queryString = params.toString();
+    return queryString ? `/inventory?${queryString}` : "/inventory";
+  }
 
   return (
-    <main className="mt-7">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="font-display text-2xl font-medium text-ink">Stock catalog</h2>
-          <p className="mt-1 text-sm text-graph">{activeItems.length} active SKUs</p>
-        </div>
+    <main className="mt-4 md:mt-5">
+      <div className="flex items-center justify-end gap-2">
+        <p className="mr-auto hidden text-sm text-graph md:block">
+          {visibleItems.length} of {activeItems.length} active SKUs
+        </p>
         {canManage && (
-          <Link href="/inventory/items/new" className="btn-primary px-4 py-2 text-sm">
-            + New inventory item
+          <Link href="/inventory/items/new" className="btn-primary flex h-10 items-center gap-2 px-4 text-sm">
+            <Plus size={17} strokeWidth={1.5} aria-hidden />
+            New item
           </Link>
         )}
       </div>
 
-      <div className={`mt-6 grid gap-4 ${showCost ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-        <div className="rounded border border-rule bg-paper p-4">
-          <p className="text-xs uppercase tracking-wide text-graph">Active items</p>
-          <p className="mt-2 font-mono text-2xl text-ink">{activeItems.length}</p>
+      <div className={`mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 ${showCost ? "" : "md:max-w-3xl"}`}>
+        <div className="relative rounded-[4px] border border-rule bg-paper p-3.5 md:p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-graph">Active items</p>
+          <p className="mt-2.5 font-display text-[26px] font-medium leading-none text-ink">{activeItems.length}</p>
+          <p className="mt-2 text-xs text-graph">{visibleItems.length} shown after filters</p>
         </div>
-        <div className="rounded border border-rule bg-paper p-4">
-          <p className="text-xs uppercase tracking-wide text-graph">At / below reorder</p>
-          <p className={`mt-2 font-mono text-2xl ${lowStock.length ? "text-weld" : "text-ink"}`}>
-            {lowStock.length}
+        <div className={`relative rounded-[4px] border bg-paper p-3.5 md:p-4 ${lowStock.length ? "border-weld" : "border-rule"}`}>
+          <p className={`font-mono text-[10px] uppercase tracking-[0.16em] ${lowStock.length ? "text-weld-text" : "text-graph"}`}>At / below reorder</p>
+          <p className="mt-2.5 font-display text-[26px] font-medium leading-none text-ink">{lowStock.length}</p>
+          <p className={`mt-2 flex items-center gap-1.5 text-xs ${lowStock.length ? "text-weld-text" : "text-graph"}`}>
+            <AlertTriangle size={14} strokeWidth={1.5} aria-hidden />
+            Raise a purchase order
           </p>
         </div>
         {showCost && (
-          <div className="rounded border border-rule bg-paper p-4">
-            <p className="text-xs uppercase tracking-wide text-graph">Stock value</p>
-            <p className="mt-2 font-mono text-2xl text-ink">{formatCad(inventoryValue)}</p>
+          <div className="relative col-span-2 rounded-[4px] border border-rule bg-paper p-3.5 md:col-span-1 md:p-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-graph">Stock value</p>
+            <p className="mt-2.5 font-display text-[26px] font-medium leading-none text-ink">{formatCad(inventoryValue)}</p>
+            <p className="mt-2 text-xs text-graph">Weighted average cost</p>
           </div>
         )}
       </div>
 
-      <div className="mt-6 overflow-x-auto rounded border border-rule bg-paper">
+      <form action="/inventory" className="mt-4 grid gap-2 md:mt-5 md:grid-cols-[minmax(260px,1fr)_auto_auto_auto_auto]">
+        <label className="flex h-11 items-center gap-2 rounded-[4px] border border-rule bg-paper px-3 text-graph md:h-10">
+          <Search size={17} strokeWidth={1.5} aria-hidden />
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            placeholder="Search SKU, item, supplier…"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-graph"
+          />
+        </label>
+        <select name="category" defaultValue={category} aria-label="Category" className="hidden h-10 rounded-[4px] border border-rule bg-paper px-3 text-[13px] text-ink md:block">
+          <option value="all">Category: All</option>
+          {categories.map((value) => (
+            <option key={value} value={value}>{inventoryCategoryLabel(value)}</option>
+          ))}
+        </select>
+        <select name="location" defaultValue={location} aria-label="Location" className="hidden h-10 rounded-[4px] border border-rule bg-paper px-3 text-[13px] text-ink md:block">
+          <option value="all">Location: All</option>
+          {locations.map((value) => <option key={value} value={value}>{value}</option>)}
+        </select>
+        {low && <input type="hidden" name="low" value="1" />}
+        <button type="submit" className="btn-secondary hidden h-10 px-3 text-[13px] md:block">Apply</button>
+        <div className="hidden overflow-hidden rounded-[4px] border border-rule md:flex">
+          <span className="flex h-10 w-10 items-center justify-center bg-ink text-bone"><List size={17} strokeWidth={1.5} aria-hidden /></span>
+          <span className="flex h-10 w-10 items-center justify-center bg-paper text-graph"><Grid2X2 size={16} strokeWidth={1.5} aria-hidden /></span>
+        </div>
+      </form>
+
+      <div className="mt-2 flex items-center gap-2 md:hidden">
+        <Link
+          href={filterHref({ low: low ? undefined : "1" })}
+          className={`flex h-11 items-center gap-2 rounded-[4px] border px-3 text-[13px] font-medium ${low ? "border-weld bg-weld/10 text-weld-text" : "border-rule bg-paper text-ink"}`}
+        >
+          <AlertTriangle size={16} strokeWidth={1.5} aria-hidden />
+          Low {lowStock.length}
+        </Link>
+        {(q || category !== "all" || location !== "all" || low) && (
+          <Link href="/inventory" className="text-[13px] text-graph">Clear filters</Link>
+        )}
+      </div>
+
+      <div className="mt-4 space-y-2.5 md:hidden">
+        {visibleItems.map((item) => {
+          const isLow = item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
+          return (
+            <Link
+              key={item.id}
+              href={`/inventory/items/${item.id}`}
+              className={`block rounded-[4px] border bg-paper p-3 ${isLow ? "border-weld" : "border-rule"} ${item.active ? "" : "opacity-55"}`}
+            >
+              <span className="flex items-start justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="block text-[15px] font-medium leading-tight text-ink">{item.name}</span>
+                  <span className="mt-1 block font-mono text-[11px] text-graph">{item.sku}</span>
+                </span>
+                <span className="shrink-0 text-right">
+                  <span className="block font-mono text-xl text-ink">{Number(item.quantity_on_hand)}</span>
+                  <span className="block font-mono text-[11px] text-graph">{item.unit}</span>
+                </span>
+              </span>
+              <span className="mt-2.5 flex items-center justify-between gap-2 border-t border-rule pt-2.5">
+                <span className={`inline-flex items-center gap-1.5 rounded-[3px] border px-2 py-1 font-mono text-[11px] ${isLow ? "border-weld text-weld-text" : "border-rule text-graph"}`}>
+                  <span className="h-1.5 w-1.5 bg-current" aria-hidden />
+                  {isLow ? "Low stock" : inventoryCategoryLabel(item.category)}
+                </span>
+                <span className="text-[13px] text-ink">Open item</span>
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 hidden overflow-x-auto rounded-[4px] border border-rule bg-paper md:block">
         <table className="w-full min-w-[56rem] border-collapse text-left text-sm">
-          <thead className="border-b border-rule bg-ink/[0.03] text-xs uppercase tracking-wide text-graph">
+          <thead className="border-b border-rule bg-ink/[0.03] font-mono text-[10px] uppercase tracking-[0.14em] text-graph">
             <tr>
-              <th className="px-4 py-3 font-medium">SKU / item</th>
-              <th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Location</th>
-              <th className="px-4 py-3 text-right font-medium">On hand</th>
-              <th className="px-4 py-3 text-right font-medium">Reorder</th>
-              {showCost && <th className="px-4 py-3 text-right font-medium">Avg. cost</th>}
-              <th className="px-4 py-3 text-right font-medium">Sell</th>
+              <th className="px-4 py-2.5 font-normal">SKU / item</th>
+              <th className="px-4 py-2.5 font-normal">Category</th>
+              <th className="px-4 py-2.5 font-normal">Location</th>
+              <th className="px-4 py-2.5 text-right font-normal">On hand</th>
+              <th className="px-4 py-2.5 text-right font-normal">Reorder</th>
+              {showCost && <th className="px-4 py-2.5 text-right font-normal">Avg. cost</th>}
+              <th className="px-4 py-2.5 text-right font-normal">Sell</th>
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => {
-              const low =
-                item.active &&
-                Number(item.quantity_on_hand) <= Number(item.reorder_point);
+            {visibleItems.map((item) => {
+              const isLow = item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
               return (
-                <tr
-                  key={item.id}
-                  className={`border-b border-rule last:border-0 ${item.active ? "" : "opacity-55"}`}
-                >
+                <tr key={item.id} className={`border-b border-rule last:border-0 hover:bg-ink/[0.025] ${item.active ? "" : "opacity-55"}`}>
                   <td className="px-4 py-3">
-                    <Link
-                      href={`/inventory/items/${item.id}`}
-                      className="font-medium text-ink hover:text-weld"
-                    >
-                      {item.name}
-                    </Link>
-                    <p className="mt-0.5 font-mono text-xs text-graph">
-                      {item.sku}{item.suppliers?.name ? ` · ${item.suppliers.name}` : ""}
-                    </p>
+                    <div className="flex items-start gap-2.5">
+                      {isLow && <span className="mt-1 h-2 w-2 shrink-0 bg-weld" aria-label="Low stock" />}
+                      <div>
+                        <Link href={`/inventory/items/${item.id}`} className="font-medium text-ink hover:text-weld-text">{item.name}</Link>
+                        <p className="mt-0.5 font-mono text-[11px] text-graph">{item.sku}{item.suppliers?.name ? ` · ${item.suppliers.name}` : ""}</p>
+                      </div>
+                    </div>
                   </td>
-                  <td className="px-4 py-3 text-graph">
-                    {inventoryCategoryLabel(item.category)}
-                  </td>
+                  <td className="px-4 py-3 text-graph">{inventoryCategoryLabel(item.category)}</td>
                   <td className="px-4 py-3 text-graph">{item.location ?? "—"}</td>
-                  <td className={`px-4 py-3 text-right font-mono ${low ? "font-medium text-weld" : "text-ink"}`}>
-                    {formatQuantity(item.quantity_on_hand, item.unit)}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-graph">
-                    {formatQuantity(item.reorder_point, item.unit)}
-                  </td>
-                  {showCost && (
-                    <td className="px-4 py-3 text-right font-mono text-ink">
-                      {formatCad(item.average_cost)}
-                    </td>
-                  )}
-                  <td className="px-4 py-3 text-right font-mono text-ink">
-                    {item.selling_price === null ? "—" : formatCad(item.selling_price)}
-                  </td>
+                  <td className={`px-4 py-3 text-right font-mono ${isLow ? "font-medium text-weld-text" : "text-ink"}`}>{formatQuantity(item.quantity_on_hand, item.unit)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-graph">{formatQuantity(item.reorder_point, item.unit)}</td>
+                  {showCost && <td className="px-4 py-3 text-right font-mono text-ink">{formatCad(item.average_cost)}</td>}
+                  <td className="px-4 py-3 text-right font-mono text-ink">{item.selling_price === null ? "—" : formatCad(item.selling_price)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-        {items.length === 0 && (
-          <p className="px-4 py-12 text-center text-sm text-graph">
-            No inventory items yet. Add the first SKU to begin receiving stock.
-          </p>
-        )}
       </div>
+
+      {visibleItems.length === 0 && (
+        <div className="mt-4 rounded-[4px] border border-dashed border-rule bg-paper px-4 py-12 text-center">
+          <p className="text-sm text-graph">No inventory items match these filters.</p>
+          <Link href="/inventory" className="mt-3 inline-flex text-sm font-medium text-weld-text">Clear filters</Link>
+        </div>
+      )}
     </main>
   );
 }

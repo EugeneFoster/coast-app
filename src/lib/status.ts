@@ -12,7 +12,7 @@ export const STATUS: Record<
   },
   in_progress: {
     label: "In progress",
-    text: "var(--weld)",
+    text: "var(--weld-text)",
     border: "var(--weld)",
     bg: "transparent",
   },

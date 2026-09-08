@@ -197,7 +197,7 @@ export function StructureThumbnail({
   const drawingIndex = pickDrawingIndex(projectId, type);
 
   return (
-    <div className="relative flex h-32 items-center justify-center overflow-hidden border-b border-rule bg-paper p-4">
+    <div className="relative flex h-full min-h-[84px] items-center justify-center overflow-hidden border-r border-rule bg-bone p-3 md:h-[120px] md:min-h-0 md:border-b md:border-r-0 md:p-4">
       <svg
         viewBox="0 0 200 90"
         preserveAspectRatio="xMidYMid meet"

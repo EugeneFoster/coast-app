@@ -6,13 +6,14 @@ export function StatusChip({ status }: { status: ProjectStatus }) {
 
   return (
     <span
-      className="inline-flex items-center rounded-[14px] border px-2 py-0.5 font-mono text-xs"
+      className="inline-flex items-center gap-1.5 rounded-[3px] border px-2 py-1 font-mono text-[11px]"
       style={{
         color: s.text,
         borderColor: s.border,
         backgroundColor: s.bg,
       }}
     >
+      <span className="h-1.5 w-1.5 bg-current" aria-hidden />
       {s.label}
     </span>
   );

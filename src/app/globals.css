@@ -9,6 +9,7 @@
   --graph: #6c6e73;
   --rule: #dbd7cb;
   --weld: #cb5530;
+  --weld-text: #a63f20;
 }
 
 .dark {
@@ -18,6 +19,7 @@
   --graph: #9a9ca1;
   --rule: #2e2f34;
   --weld: #e0673c;
+  --weld-text: #f08a65;
 }
 
 @theme inline {
@@ -27,6 +29,7 @@
   --color-graph: var(--graph);
   --color-rule: var(--rule);
   --color-weld: var(--weld);
+  --color-weld-text: var(--weld-text);
   --font-display: "Oswald", ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -36,6 +39,15 @@
 body {
   color: var(--ink);
   background-color: var(--bone);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--weld) 28%, transparent);
+}
+
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--weld);
+  outline-offset: 2px;
 }
 
 /* Warm ink-on-bone drafting grid — texture in gutters around cards only */
@@ -78,7 +90,7 @@ body {
 }
 
 .btn-primary {
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--weld);
   color: #fff;
   font-family: var(--font-sans);
@@ -86,12 +98,33 @@ body {
 }
 
 .btn-secondary {
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
   color: var(--ink);
   border: 1px solid var(--ink);
   font-family: var(--font-sans);
   font-weight: 500;
+}
+
+.blueprint-corner {
+  position: absolute;
+  z-index: 2;
+  color: var(--weld);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.blueprint-corner.tl { left: -5px; top: -7px; }
+.blueprint-corner.tr { right: -5px; top: -7px; }
+.blueprint-corner.bl { bottom: -7px; left: -5px; }
+.blueprint-corner.br { bottom: -7px; right: -5px; }
+
+@media (max-width: 767px) {
+  .app-content {
+    padding-bottom: 74px;
+  }
 }
 
 .font-display {
