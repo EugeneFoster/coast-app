@@ -241,26 +241,37 @@ async function loadAccess(): Promise<{ accessToken: string; tenantId: string }> 
 }
 
 export async function xeroRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const { accessToken, tenantId } = await loadAccess();
-  const response = await fetch(`${ACCOUNTING_URL}${path}`, {
-    ...init,
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "xero-tenant-id": tenantId,
-      accept: "application/json",
-      ...(init.body ? { "content-type": "application/json" } : {}),
-      ...init.headers,
-    },
-    cache: "no-store",
-  });
-  const payload = (await response.json().catch(() => null)) as T | { Message?: string } | null;
-  if (!response.ok) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { accessToken, tenantId } = await loadAccess();
+    const response = await fetch(`${ACCOUNTING_URL}${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "xero-tenant-id": tenantId,
+        accept: "application/json",
+        ...(init.body ? { "content-type": "application/json" } : {}),
+        ...init.headers,
+      },
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => null)) as T | { Message?: string } | null;
+    if (response.ok) return payload as T;
+
+    if (response.status === 429 && attempt < 7) {
+      const retryAfter = Number(response.headers.get("retry-after"));
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1_000, 70_000)
+        : Math.min(2_000 * 2 ** attempt, 60_000);
+      await new Promise((resolve) => setTimeout(resolve, delay + 250));
+      continue;
+    }
+
     const message = payload && typeof payload === "object" && "Message" in payload
       ? String(payload.Message)
       : `HTTP ${response.status}`;
     throw new XeroError(`Xero request failed: ${message}`, response.status);
   }
-  return payload as T;
+  throw new XeroError("Xero request failed after repeated rate-limit retries.", 429);
 }
 
 export async function getXeroStatus() {
@@ -279,4 +290,3 @@ export async function markXeroConnection(values: Record<string, unknown>) {
   const supabase = createAdminClient();
   await supabase.from("xero_connections").update(values).eq("id", "primary");
 }
-
