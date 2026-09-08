@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requirePurchasingViewer } from "@/lib/auth";
 import { canManageInventory } from "@/lib/employee-roles";
-import { purchaseOrderStatusLabel } from "@/lib/inventory";
+import { purchaseOrderStatusLabel, shippingStatusLabel } from "@/lib/inventory";
 import { formatCad, formatShortDate } from "@/lib/sales";
 import { createClient } from "@/lib/supabase/server";
 import type { PurchaseOrder } from "@/lib/types";
@@ -59,6 +59,7 @@ export default async function PurchaseOrdersPage() {
               <th className="px-4 py-3 font-medium">PO</th>
               <th className="px-4 py-3 font-medium">Supplier</th>
               <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Delivery</th>
               <th className="px-4 py-3 font-medium">Order date</th>
               <th className="px-4 py-3 font-medium">Expected</th>
               <th className="px-4 py-3 text-right font-medium">Total</th>
@@ -74,6 +75,16 @@ export default async function PurchaseOrdersPage() {
                   >
                     {purchaseOrder.po_number}
                   </Link>
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`rounded border px-2 py-1 text-xs ${purchaseOrder.shipping_status === "backordered" ? "border-weld text-weld-text" : purchaseOrder.shipping_status === "shipped" ? "border-blue-300 text-blue-700" : "border-rule text-graph"}`}>
+                    {shippingStatusLabel(purchaseOrder.shipping_status)}
+                  </span>
+                  {purchaseOrder.tracking_url && (
+                    <a href={purchaseOrder.tracking_url} target="_blank" rel="noreferrer" className="ml-2 text-xs text-blue-700 hover:underline">
+                      {purchaseOrder.tracking_number || "Track"}
+                    </a>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-ink">{purchaseOrder.suppliers?.name ?? "Supplier"}</td>
                 <td className="px-4 py-3">

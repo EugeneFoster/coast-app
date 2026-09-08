@@ -1,14 +1,28 @@
 import Link from "next/link";
-import { AlertTriangle, Grid2X2, List, Plus, Search } from "lucide-react";
+import { AlertTriangle, Grid2X2, ImageIcon, List, PackageOpen, Plus, Search } from "lucide-react";
+import { IntegrationSyncPanel } from "@/components/integration-sync-panel";
 import { requireInventoryViewer } from "@/lib/auth";
 import { canManageInventory, canViewPurchasing } from "@/lib/employee-roles";
 import { formatQuantity, inventoryCategoryLabel } from "@/lib/inventory";
 import { formatCad } from "@/lib/sales";
 import { createClient } from "@/lib/supabase/server";
 import type { InventoryItem } from "@/lib/types";
+import { getXeroStatus } from "@/lib/xero/client";
 
 type InventoryRow = InventoryItem & {
   suppliers: { name: string } | null;
+};
+
+type InboundLine = {
+  inventory_item_id: string;
+  quantity: number;
+  quantity_received: number;
+  purchase_orders: {
+    id: string;
+    status: string;
+    shipping_status: string;
+    expected_date: string | null;
+  } | null;
 };
 
 export default async function InventoryPage({
@@ -21,12 +35,31 @@ export default async function InventoryPage({
   const showCost = canViewPurchasing(profile.role);
   const { q = "", category = "all", location = "all", low = "" } = await searchParams;
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("inventory_items")
-    .select("*, suppliers(name)")
-    .order("active", { ascending: false })
-    .order("name");
+  const [{ data }, { data: inboundData }, xeroStatus] = await Promise.all([
+    supabase
+      .from("inventory_items")
+      .select("*, suppliers(name)")
+      .order("active", { ascending: false })
+      .order("name"),
+    supabase
+      .from("purchase_order_items")
+      .select("inventory_item_id, quantity, quantity_received, purchase_orders(id, status, shipping_status, expected_date)"),
+    getXeroStatus(),
+  ]);
   const items = (data ?? []) as InventoryRow[];
+  const inboundLines = (inboundData ?? []) as unknown as InboundLine[];
+  const inboundByItem = new Map<string, { quantity: number; statuses: string[]; expected: string | null }>();
+  for (const line of inboundLines) {
+    const order = line.purchase_orders;
+    if (!order || !["ordered", "partially_received"].includes(order.status)) continue;
+    const remaining = Math.max(0, Number(line.quantity) - Number(line.quantity_received));
+    if (!remaining) continue;
+    const current = inboundByItem.get(line.inventory_item_id) ?? { quantity: 0, statuses: [], expected: null };
+    current.quantity += remaining;
+    current.statuses.push(order.shipping_status);
+    if (order.expected_date && (!current.expected || order.expected_date < current.expected)) current.expected = order.expected_date;
+    inboundByItem.set(line.inventory_item_id, current);
+  }
   const activeItems = items.filter((item) => item.active);
   const lowStock = activeItems.filter(
     (item) => Number(item.quantity_on_hand) <= Number(item.reorder_point),
@@ -51,6 +84,10 @@ export default async function InventoryPage({
     );
   });
   const categories = Array.from(new Set(activeItems.map((item) => item.category))).sort();
+  const categoryCounts = categories.map((value) => ({
+    value,
+    count: activeItems.filter((item) => item.category === value).length,
+  }));
   const locations = Array.from(
     new Set(activeItems.map((item) => item.location).filter((value): value is string => Boolean(value))),
   ).sort();
@@ -78,6 +115,23 @@ export default async function InventoryPage({
           </Link>
         )}
       </div>
+
+      <IntegrationSyncPanel
+        xero={xeroStatus}
+        canManage={canManage}
+        inboundOrders={new Set(inboundLines.filter((line) => line.purchase_orders && ["ordered", "partially_received"].includes(line.purchase_orders.status)).map((line) => line.purchase_orders!.id)).size}
+      />
+
+      {categoryCounts.length > 0 && (
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          <Link href={filterHref({ category: "all" })} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs ${category === "all" ? "border-ink bg-ink text-bone" : "border-rule bg-paper text-graph"}`}>All {activeItems.length}</Link>
+          {categoryCounts.map(({ value, count }) => (
+            <Link key={value} href={filterHref({ category: value })} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs ${category === value ? "border-ink bg-ink text-bone" : "border-rule bg-paper text-graph"}`}>
+              {inventoryCategoryLabel(value)} {count}
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className={`mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 ${showCost ? "" : "md:max-w-3xl"}`}>
         <div className="relative rounded-[4px] border border-rule bg-paper p-3.5 md:p-4">
@@ -147,6 +201,7 @@ export default async function InventoryPage({
       <div className="mt-4 space-y-2.5 md:hidden">
         {visibleItems.map((item) => {
           const isLow = item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
+          const inbound = inboundByItem.get(item.id);
           return (
             <Link
               key={item.id}
@@ -154,6 +209,12 @@ export default async function InventoryPage({
               className={`block rounded-[4px] border bg-paper p-3 ${isLow ? "border-weld" : "border-rule"} ${item.active ? "" : "opacity-55"}`}
             >
               <span className="flex items-start justify-between gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-rule bg-bone">
+                  {item.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.image_url} alt="" className="h-full w-full object-contain" />
+                  ) : <ImageIcon size={17} className="text-graph" aria-hidden />}
+                </span>
                 <span className="min-w-0">
                   <span className="block text-[15px] font-medium leading-tight text-ink">{item.name}</span>
                   <span className="mt-1 block font-mono text-[11px] text-graph">{item.sku}</span>
@@ -163,6 +224,11 @@ export default async function InventoryPage({
                   <span className="block font-mono text-[11px] text-graph">{item.unit}</span>
                 </span>
               </span>
+              {inbound && (
+                <span className="mt-2 flex items-center gap-1.5 text-xs text-blue-700">
+                  <PackageOpen size={14} aria-hidden /> Incoming {formatQuantity(inbound.quantity, item.unit)} · {inbound.statuses.includes("shipped") ? "Shipped" : inbound.statuses.includes("backordered") ? "Backordered" : "Ordered"}
+                </span>
+              )}
               <span className="mt-2.5 flex items-center justify-between gap-2 border-t border-rule pt-2.5">
                 <span className={`inline-flex items-center gap-1.5 rounded-[3px] border px-2 py-1 font-mono text-[11px] ${isLow ? "border-weld text-weld-text" : "border-rule text-graph"}`}>
                   <span className="h-1.5 w-1.5 bg-current" aria-hidden />
@@ -183,6 +249,7 @@ export default async function InventoryPage({
               <th className="px-4 py-2.5 font-normal">Category</th>
               <th className="px-4 py-2.5 font-normal">Location</th>
               <th className="px-4 py-2.5 text-right font-normal">On hand</th>
+              <th className="px-4 py-2.5 font-normal">Incoming</th>
               <th className="px-4 py-2.5 text-right font-normal">Reorder</th>
               {showCost && <th className="px-4 py-2.5 text-right font-normal">Avg. cost</th>}
               <th className="px-4 py-2.5 text-right font-normal">Sell</th>
@@ -191,11 +258,18 @@ export default async function InventoryPage({
           <tbody>
             {visibleItems.map((item) => {
               const isLow = item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
+              const inbound = inboundByItem.get(item.id);
               return (
                 <tr key={item.id} className={`border-b border-rule last:border-0 hover:bg-ink/[0.025] ${item.active ? "" : "opacity-55"}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-start gap-2.5">
                       {isLow && <span className="mt-1 h-2 w-2 shrink-0 bg-weld" aria-label="Low stock" />}
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-rule bg-bone">
+                        {item.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={item.image_url} alt="" className="h-full w-full object-contain" />
+                        ) : <ImageIcon size={16} className="text-graph" aria-hidden />}
+                      </span>
                       <div>
                         <Link href={`/inventory/items/${item.id}`} className="font-medium text-ink hover:text-weld-text">{item.name}</Link>
                         <p className="mt-0.5 font-mono text-[11px] text-graph">{item.sku}{item.suppliers?.name ? ` · ${item.suppliers.name}` : ""}</p>
@@ -205,6 +279,14 @@ export default async function InventoryPage({
                   <td className="px-4 py-3 text-graph">{inventoryCategoryLabel(item.category)}</td>
                   <td className="px-4 py-3 text-graph">{item.location ?? "—"}</td>
                   <td className={`px-4 py-3 text-right font-mono ${isLow ? "font-medium text-weld-text" : "text-ink"}`}>{formatQuantity(item.quantity_on_hand, item.unit)}</td>
+                  <td className="px-4 py-3">
+                    {inbound ? (
+                      <Link href="/inventory/purchase-orders" className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:underline">
+                        <PackageOpen size={14} aria-hidden />
+                        {formatQuantity(inbound.quantity, item.unit)} · {inbound.statuses.includes("shipped") ? "Shipped" : inbound.statuses.includes("backordered") ? "Backorder" : "Ordered"}
+                      </Link>
+                    ) : <span className="text-graph">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-right font-mono text-graph">{formatQuantity(item.reorder_point, item.unit)}</td>
                   {showCost && <td className="px-4 py-3 text-right font-mono text-ink">{formatCad(item.average_cost)}</td>}
                   <td className="px-4 py-3 text-right font-mono text-ink">{item.selling_price === null ? "—" : formatCad(item.selling_price)}</td>

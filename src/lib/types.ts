@@ -310,6 +310,11 @@ export type InventoryCategory =
   | "paint"
   | "mechanical"
   | "electrical"
+  | "electronics"
+  | "plumbing"
+  | "steering"
+  | "engine"
+  | "deck"
   | "dock"
   | "consumable"
   | "safety"
@@ -357,6 +362,19 @@ export interface InventoryItem {
   reorder_point: number;
   location: string | null;
   preferred_supplier_id: string | null;
+  manufacturer: string | null;
+  image_url: string | null;
+  product_url: string | null;
+  source: "crm" | "xero" | "marinepartssupply" | "mercury" | "westernmarine";
+  xero_item_id: string | null;
+  xero_is_tracked: boolean;
+  xero_sales_account_code: string | null;
+  xero_purchase_account_code: string | null;
+  xero_inventory_asset_account_code: string | null;
+  xero_updated_at: string | null;
+  xero_synced_at: string | null;
+  xero_sync_status: "not_linked" | "synced" | "pending_push" | "conflict" | "failed";
+  xero_sync_error: string | null;
   active: boolean;
   created_by: string | null;
   created_at: string;
@@ -374,6 +392,26 @@ export interface PurchaseOrder {
   subtotal: number;
   ordered_at: string | null;
   received_at: string | null;
+  external_source: "marinepartssupply" | "mercury" | "westernmarine" | "xero" | null;
+  external_order_id: string | null;
+  external_order_number: string | null;
+  shipping_status:
+    | "not_applicable"
+    | "ordered"
+    | "confirmed"
+    | "processing"
+    | "backordered"
+    | "shipped"
+    | "partially_received"
+    | "delivered"
+    | "cancelled"
+    | "unknown";
+  carrier_name: string | null;
+  tracking_number: string | null;
+  tracking_url: string | null;
+  shipped_at: string | null;
+  supplier_synced_at: string | null;
+  supplier_sync_error: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -389,6 +427,9 @@ export interface PurchaseOrderItem {
   quantity_received: number;
   unit: string;
   unit_cost: number;
+  external_line_id: string | null;
+  image_url: string | null;
+  product_url: string | null;
   line_total: number;
   created_at: string;
   updated_at: string;

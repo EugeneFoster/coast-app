@@ -12,6 +12,7 @@ import { getInventoryItemOptions } from "@/lib/inventory-data";
 import {
   formatQuantity,
   purchaseOrderStatusLabel,
+  shippingStatusLabel,
 } from "@/lib/inventory";
 import { formatCad, formatShortDate } from "@/lib/sales";
 import { createClient } from "@/lib/supabase/server";
@@ -79,6 +80,11 @@ export default async function PurchaseOrderPage({
             <span className="rounded border border-rule px-2.5 py-1 text-xs text-graph">
               {purchaseOrderStatusLabel(purchaseOrder.status)}
             </span>
+            {purchaseOrder.external_source && (
+              <span className="rounded border border-blue-300 px-2.5 py-1 text-xs text-blue-700">
+                {shippingStatusLabel(purchaseOrder.shipping_status)}
+              </span>
+            )}
           </div>
           <p className="mt-2 text-sm text-graph">
             {purchaseOrder.suppliers?.name ?? "Supplier"}
@@ -129,6 +135,24 @@ export default async function PurchaseOrderPage({
         )}
       </div>
 
+      {purchaseOrder.external_source && (
+        <section className="mt-4 rounded border border-blue-200 bg-blue-50/60 p-4 text-sm text-ink">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-medium">Supplier order {purchaseOrder.external_order_number ?? purchaseOrder.external_order_id}</p>
+              <p className="mt-1 text-xs text-graph">
+                Delivery status updates from {purchaseOrder.external_source}. Stock changes only after you confirm each received line below.
+              </p>
+            </div>
+            {purchaseOrder.tracking_url && (
+              <a href={purchaseOrder.tracking_url} target="_blank" rel="noreferrer" className="btn-secondary px-3 py-2 text-xs">
+                Track {purchaseOrder.tracking_number ?? "shipment"}
+              </a>
+            )}
+          </div>
+        </section>
+      )}
+
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded border border-rule bg-paper p-4">
           <p className="text-xs uppercase tracking-wide text-graph">Order total</p>
@@ -178,7 +202,12 @@ export default async function PurchaseOrderPage({
             return (
               <article key={line.id} className="rounded border border-rule bg-paper p-4">
                 <div className="grid gap-3 text-sm lg:grid-cols-[1fr_8rem_9rem_9rem_9rem_3rem] lg:items-center">
-                  <div>
+                  <div className="flex items-center gap-3">
+                    {line.image_url && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={line.image_url} alt="" className="h-11 w-11 shrink-0 rounded border border-rule bg-bone object-contain" />
+                    )}
+                    <div>
                     <p className="font-medium text-ink">
                       {line.inventory_items?.name ?? line.description}
                     </p>
@@ -186,6 +215,7 @@ export default async function PurchaseOrderPage({
                       {line.inventory_items?.sku ?? "—"}
                       {line.supplier_sku ? ` · Supplier ${line.supplier_sku}` : ""}
                     </p>
+                    </div>
                   </div>
                   <span className="font-mono text-xs text-graph">
                     {formatQuantity(line.quantity, line.unit)}

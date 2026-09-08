@@ -24,6 +24,11 @@ export const INVENTORY_CATEGORIES: Array<{
   { value: "paint", label: "Paint & coatings" },
   { value: "mechanical", label: "Mechanical" },
   { value: "electrical", label: "Electrical" },
+  { value: "electronics", label: "Electronics & navigation" },
+  { value: "plumbing", label: "Plumbing & pumps" },
+  { value: "steering", label: "Steering & controls" },
+  { value: "engine", label: "Engine parts" },
+  { value: "deck", label: "Deck hardware" },
   { value: "dock", label: "Dock hardware" },
   { value: "consumable", label: "Consumables" },
   { value: "safety", label: "Safety" },
@@ -65,6 +70,22 @@ export function inventoryCategoryLabel(category: InventoryCategory) {
 
 export function purchaseOrderStatusLabel(status: PurchaseOrderStatus) {
   return PURCHASE_ORDER_STATUSES.find(({ value }) => value === status)?.label ?? status;
+}
+
+export function shippingStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    not_applicable: "Manual PO",
+    ordered: "Ordered",
+    confirmed: "Confirmed",
+    processing: "Processing",
+    backordered: "Backordered",
+    shipped: "In transit",
+    partially_received: "Part received",
+    delivered: "Delivered — confirm receipt",
+    cancelled: "Cancelled",
+    unknown: "Awaiting update",
+  };
+  return labels[status] ?? status;
 }
 
 export function inventoryMovementLabel(type: InventoryMovementType) {

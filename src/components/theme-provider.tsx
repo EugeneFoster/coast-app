@@ -1,7 +1,23 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+
+const THEME_EVENT = "coast-theme-change";
+
+function subscribeTheme(onChange: () => void) {
+  window.addEventListener(THEME_EVENT, onChange);
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  media.addEventListener("change", onChange);
+  return () => {
+    window.removeEventListener(THEME_EVENT, onChange);
+    media.removeEventListener("change", onChange);
+  };
+}
+
+function currentTheme() {
+  return document.documentElement.classList.contains("dark");
+}
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -15,20 +31,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function ThemeToggle() {
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("coast-theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const nextDark = stored === "dark" || (!stored && prefersDark);
-    document.documentElement.classList.toggle("dark", nextDark);
-    setDark(nextDark);
-  }, []);
+  const dark = useSyncExternalStore(subscribeTheme, currentTheme, () => false);
 
   function select(nextDark: boolean) {
     document.documentElement.classList.toggle("dark", nextDark);
     localStorage.setItem("coast-theme", nextDark ? "dark" : "light");
-    setDark(nextDark);
+    window.dispatchEvent(new Event(THEME_EVENT));
   }
 
   return (

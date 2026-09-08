@@ -3,6 +3,7 @@ import type {
   ExternalSyncStatus,
   XeroImpact,
 } from "@/lib/types";
+import { pushInventoryItemToXero } from "@/lib/xero/inventory-sync";
 
 /**
  * The accounting-sync seam.
@@ -12,15 +13,8 @@ import type {
  * ordering is what makes "nothing reaches Xero without a human decision" true
  * by construction rather than by convention.
  *
- * State of play: this repository has no Xero client. `XERO_CLIENT_ID`,
- * `XERO_CLIENT_SECRET` and `XERO_REDIRECT_URI` are provisioned on the
- * deployment, but no OAuth flow, token store or API call exists anywhere in the
- * codebase, so there is nothing to call yet. Rather than pretend otherwise, the
- * seam reports `not_configured`, the UI says so on every approval card, and a
- * change is never recorded as "synced" when it was not.
- *
- * Wiring the real integration means implementing `XeroSyncAdapter` and swapping
- * the export at the bottom of this file. No caller changes.
+ * The concrete adapter below writes approved inventory-item changes through the
+ * same encrypted OAuth connection used by the inventory catalogue screen.
  */
 
 export interface XeroImpactInput {
@@ -100,7 +94,36 @@ class UnconfiguredXeroSyncAdapter implements XeroSyncAdapter {
   }
 }
 
-let adapter: XeroSyncAdapter = new UnconfiguredXeroSyncAdapter();
+class ConnectedXeroSyncAdapter implements XeroSyncAdapter {
+  readonly available = true;
+
+  describeImpact(input: XeroImpactInput): XeroImpactDescription {
+    const impact = IMPACT_WHEN_CONNECTED[input.actionType];
+    return impact === "none"
+      ? { impact, detail: "Work order costing only — no accounting item changes." }
+      : { impact, detail: "The approved inventory item will be updated in Xero." };
+  }
+
+  async sync(input: XeroSyncInput): Promise<XeroSyncResult> {
+    if (IMPACT_WHEN_CONNECTED[input.actionType] === "none") {
+      return { status: "not_required", error: null };
+    }
+    if (!input.entityId) return { status: "failed", error: "The inventory item reference is missing." };
+    const result = await pushInventoryItemToXero(input.entityId);
+    return result.synced
+      ? { status: "synced", error: null }
+      : { status: "failed", error: result.message };
+  }
+}
+
+function xeroEnvironmentReady() {
+  return ["XERO_CLIENT_ID", "XERO_CLIENT_SECRET", "XERO_REDIRECT_URI", "XERO_TOKEN_ENCRYPTION_KEY"]
+    .every((name) => Boolean(process.env[name]?.trim()));
+}
+
+let adapter: XeroSyncAdapter = xeroEnvironmentReady()
+  ? new ConnectedXeroSyncAdapter()
+  : new UnconfiguredXeroSyncAdapter();
 
 export function getXeroSyncAdapter(): XeroSyncAdapter {
   return adapter;

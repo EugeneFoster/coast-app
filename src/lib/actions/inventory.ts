@@ -8,6 +8,8 @@ import {
   type InventoryActionState,
 } from "@/lib/inventory";
 import { createClient } from "@/lib/supabase/server";
+import { getXeroStatus } from "@/lib/xero/client";
+import { pushInventoryItemToXero } from "@/lib/xero/inventory-sync";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -46,6 +48,16 @@ function validDate(value: string | null) {
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+function validHttpUrl(value: string | null) {
+  if (!value) return true;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function revalidateInventory(itemId?: string) {
   revalidatePath("/inventory");
   if (itemId) revalidatePath(`/inventory/items/${itemId}`);
@@ -82,6 +94,9 @@ function inventoryItemPayload(formData: FormData) {
     sellingPrice: optionalNumber(formData, "selling_price"),
     reorderPoint: requiredNumber(formData, "reorder_point"),
     location: nullable(formData, "location"),
+    manufacturer: nullable(formData, "manufacturer"),
+    imageUrl: nullable(formData, "image_url"),
+    productUrl: nullable(formData, "product_url"),
     preferredSupplierId: nullable(formData, "preferred_supplier_id"),
     active: formData.get("active") === "on",
   };
@@ -104,6 +119,9 @@ function validateInventoryItemPayload(
   }
   if (payload.preferredSupplierId && !validUuid(payload.preferredSupplierId)) {
     return "Select a valid supplier.";
+  }
+  if (!validHttpUrl(payload.imageUrl) || !validHttpUrl(payload.productUrl)) {
+    return "Image and product links must be valid http(s) URLs.";
   }
   return null;
 }
@@ -184,6 +202,9 @@ export async function createInventoryItemAction(
       selling_price: payload.sellingPrice,
       reorder_point: payload.reorderPoint,
       location: payload.location,
+      manufacturer: payload.manufacturer,
+      image_url: payload.imageUrl,
+      product_url: payload.productUrl,
       preferred_supplier_id: payload.preferredSupplierId,
       active: payload.active,
       created_by: user.id,
@@ -192,6 +213,13 @@ export async function createInventoryItemAction(
     .single();
   if (error || !data) {
     return { status: "error", message: error?.message ?? "Could not create item." };
+  }
+  if ((await getXeroStatus()).connected) {
+    await supabase
+      .from("inventory_items")
+      .update({ xero_sync_status: "pending_push" })
+      .eq("id", data.id);
+    await pushInventoryItemToXero(data.id);
   }
   revalidateInventory(data.id);
   redirect(`/inventory/items/${data.id}`);
@@ -228,6 +256,9 @@ export async function updateInventoryItemAction(
       selling_price: payload.sellingPrice,
       reorder_point: payload.reorderPoint,
       location: payload.location,
+      manufacturer: payload.manufacturer,
+      image_url: payload.imageUrl,
+      product_url: payload.productUrl,
       preferred_supplier_id: payload.preferredSupplierId,
       active: payload.active,
     })
@@ -237,8 +268,17 @@ export async function updateInventoryItemAction(
   if (error || !data) {
     return { status: "error", message: error?.message ?? "Item not found." };
   }
+  let xeroWarning = "";
+  if ((await getXeroStatus()).connected) {
+    await supabase
+      .from("inventory_items")
+      .update({ xero_sync_status: "pending_push" })
+      .eq("id", itemId);
+    const xeroResult = await pushInventoryItemToXero(itemId);
+    if (!xeroResult.synced) xeroWarning = ` Xero sync pending: ${xeroResult.message}`;
+  }
   revalidateInventory(itemId);
-  return { status: "success", message: "Inventory item updated." };
+  return { status: "success", message: `Inventory item updated.${xeroWarning}` };
 }
 
 export async function adjustInventoryAction(

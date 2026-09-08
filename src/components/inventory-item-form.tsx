@@ -127,6 +127,15 @@ export function InventoryItemForm({
           />
         </label>
         <label className={labelClass}>
+          Manufacturer / brand
+          <input
+            name="manufacturer"
+            defaultValue={item?.manufacturer ?? ""}
+            disabled={pending}
+            className={inputClass}
+          />
+        </label>
+        <label className={labelClass}>
           Preferred supplier
           <select
             name="preferred_supplier_id"
@@ -143,6 +152,28 @@ export function InventoryItemForm({
                 </option>
               ))}
           </select>
+        </label>
+        <label className={`${labelClass} md:col-span-2`}>
+          Product image URL
+          <input
+            name="image_url"
+            type="url"
+            placeholder="https://…"
+            defaultValue={item?.image_url ?? ""}
+            disabled={pending}
+            className={inputClass}
+          />
+        </label>
+        <label className={`${labelClass} md:col-span-2`}>
+          Supplier product URL
+          <input
+            name="product_url"
+            type="url"
+            placeholder="https://…"
+            defaultValue={item?.product_url ?? ""}
+            disabled={pending}
+            className={inputClass}
+          />
         </label>
         <label className={`${labelClass} md:col-span-2`}>
           Description

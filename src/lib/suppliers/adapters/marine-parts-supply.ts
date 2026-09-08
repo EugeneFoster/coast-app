@@ -15,6 +15,8 @@ import type {
   SupplierCapabilities,
   SupplierId,
   SupplierPartResult,
+  SupplierDeliveryStatus,
+  SupplierInboundOrder,
 } from "@/lib/suppliers/types";
 
 /**
@@ -60,7 +62,90 @@ const CAPABILITIES: SupplierCapabilities = {
   warehouse: false,
   eta: false,
   supplierSku: false,
+  orders: true,
 };
+
+interface MpsCheckoutOrderItem {
+  id?: unknown;
+  part_code?: unknown;
+  desc1?: unknown;
+  desc2?: unknown;
+  quantity?: unknown;
+  unit_price?: unknown;
+  avail_qty_short?: unknown;
+}
+
+interface MpsCheckoutOrder {
+  id?: unknown;
+  status?: unknown;
+  po_number?: unknown;
+  silk_order_number?: unknown;
+  subtotal?: unknown;
+  total?: unknown;
+  shipvia?: unknown;
+  created_at?: unknown;
+  submitted_at?: unknown;
+  items?: unknown;
+}
+
+interface MpsBackorderHeader {
+  order_number?: unknown;
+  order_date?: unknown;
+  status_code?: unknown;
+  status_label?: unknown;
+  po_number?: unknown;
+  ship_via?: unknown;
+  order_total?: unknown;
+  company?: unknown;
+}
+
+interface MpsBackorderLine {
+  sequence?: unknown;
+  item_code?: unknown;
+  description?: unknown;
+  qty_ordered?: unknown;
+  qty_shipped?: unknown;
+  qty_backordered?: unknown;
+  each_price?: unknown;
+  price?: unknown;
+}
+
+interface MpsShipment {
+  status?: unknown;
+  carrier_name?: unknown;
+  tracking_number?: unknown;
+  tracking_url?: unknown;
+  shipped_at?: unknown;
+  orders?: unknown;
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(String(value ?? "").replace(/[$,]/g, ""));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function identifier(value: unknown, maxLength = 100) {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value).slice(0, maxLength);
+  return cleanText(value, maxLength);
+}
+
+function isoDate(value: unknown) {
+  if (typeof value !== "string" || !value) return new Date().toISOString();
+  const parsed = new Date(value.length === 10 ? `${value}T12:00:00Z` : value);
+  return Number.isNaN(parsed.valueOf()) ? new Date().toISOString() : parsed.toISOString();
+}
+
+function deliveryStatus(value: unknown): SupplierDeliveryStatus {
+  const status = String(value ?? "").toLowerCase();
+  if (/cancel|void|declin/.test(status)) return "cancelled";
+  if (/deliver|complete|closed/.test(status)) return "delivered";
+  if (/ship|transit|manifest/.test(status)) return "shipped";
+  if (/back.?order|\bbo\b/.test(status)) return "backordered";
+  if (/process|pick|pack/.test(status)) return "processing";
+  if (/confirm|submit|authoriz/.test(status)) return "confirmed";
+  if (/order|open|new|pending/.test(status)) return "ordered";
+  return "unknown";
+}
 
 /** One row of `GET /api/inventory/search` or `/api/inventory/parts/{code}`. */
 interface MpsPart {
@@ -359,6 +444,148 @@ export class MarinePartsSupplyAdapter extends BaseSupplierAdapter {
     return this.sessions.run(
       (s) => this.login(s),
       (session) => this.fetchDetail(session, partCode, signal),
+      signal,
+    );
+  }
+
+  private async readOrderFeed(
+    session: SupplierSession,
+    path: string,
+    signal?: AbortSignal,
+  ) {
+    const response = await supplierFetch(this.id, this.url(path), {
+      headers: this.authHeaders(session),
+      signal,
+    });
+    if (response.status === 401) {
+      throw new SupplierError(this.id, "SESSION_EXPIRED", "order feed rejected the bearer token");
+    }
+    if (response.status === 403) return null;
+    if (response.status === 429) {
+      throw new SupplierError(this.id, "RATE_LIMITED", "order feed rate limited");
+    }
+    if (!response.ok || !response.json || typeof response.json !== "object") {
+      throw new SupplierError(this.id, "SUPPLIER_UNAVAILABLE", `order feed status ${response.status}`);
+    }
+    return response.json as Record<string, unknown>;
+  }
+
+  private mapCheckoutOrder(order: MpsCheckoutOrder, shipment?: MpsShipment): SupplierInboundOrder | null {
+    const id = identifier(order.id, 80);
+    if (!id) return null;
+    const externalNumber = cleanText(order.silk_order_number, 100) ?? `WEB-${id}`;
+    const rawStatus = cleanText(shipment?.status, 100) ?? cleanText(order.status, 100);
+    const rows = Array.isArray(order.items) ? order.items as MpsCheckoutOrderItem[] : [];
+    return {
+      supplier: this.id,
+      externalId: `web:${id}`,
+      orderNumber: externalNumber,
+      purchaseOrderNumber: cleanText(order.po_number, 100),
+      status: deliveryStatus(rawStatus),
+      rawStatus,
+      orderedAt: isoDate(order.submitted_at ?? order.created_at),
+      expectedAt: null,
+      subtotal: numberValue(order.subtotal ?? order.total),
+      carrierName: cleanText(shipment?.carrier_name, 120) ?? cleanText(order.shipvia, 120),
+      trackingNumber: cleanText(shipment?.tracking_number, 160),
+      trackingUrl: sanitizeProductUrl(shipment?.tracking_url),
+      shippedAt: shipment?.shipped_at ? isoDate(shipment.shipped_at) : null,
+      items: rows.flatMap((row, index) => {
+        const partNumber = cleanText(row.part_code, 100);
+        if (!partNumber) return [];
+        return [{
+          externalLineId: identifier(row.id, 80) ?? String(index + 1),
+          partNumber,
+          description: [cleanText(row.desc1), cleanText(row.desc2)].filter(Boolean).join(" ") || partNumber,
+          quantity: numberValue(row.quantity),
+          quantityShipped: 0,
+          quantityBackordered: numberValue(row.avail_qty_short),
+          unitPrice: numberValue(row.unit_price),
+        }];
+      }).filter((row) => row.quantity > 0),
+    };
+  }
+
+  private async listBackorders(session: SupplierSession, signal?: AbortSignal) {
+    const payload = await this.readOrderFeed(session, "/api/orders/backorders?page=1&limit=200", signal);
+    const headers = Array.isArray(payload?.results) ? payload.results as MpsBackorderHeader[] : [];
+    const orders: SupplierInboundOrder[] = [];
+    for (const header of headers) {
+      const orderNumber = cleanText(header.order_number, 100);
+      const company = identifier(header.company, 20);
+      if (!orderNumber || !company) continue;
+      const detail = await this.readOrderFeed(
+        session,
+        `/api/orders/backorders/${encodeURIComponent(orderNumber)}/detail?company=${encodeURIComponent(company)}`,
+        signal,
+      );
+      const rows = Array.isArray(detail) ? detail as unknown as MpsBackorderLine[] : [];
+      orders.push({
+        supplier: this.id,
+        externalId: `silk:${company}:${orderNumber}`,
+        orderNumber,
+        purchaseOrderNumber: cleanText(header.po_number, 100),
+        status: "backordered",
+        rawStatus: cleanText(header.status_label, 100) ?? cleanText(header.status_code, 100),
+        orderedAt: isoDate(header.order_date),
+        expectedAt: null,
+        subtotal: numberValue(header.order_total),
+        carrierName: cleanText(header.ship_via, 120),
+        trackingNumber: null,
+        trackingUrl: null,
+        shippedAt: null,
+        items: rows.flatMap((row, index) => {
+          const partNumber = cleanText(row.item_code, 100);
+          if (!partNumber) return [];
+          return [{
+            externalLineId: cleanText(row.sequence, 80) ?? String(index + 1),
+            partNumber,
+            description: cleanText(row.description, 500) ?? partNumber,
+            quantity: numberValue(row.qty_ordered),
+            quantityShipped: numberValue(row.qty_shipped),
+            quantityBackordered: numberValue(row.qty_backordered),
+            unitPrice: numberValue(row.each_price ?? row.price),
+          }];
+        }).filter((row) => row.quantity > 0),
+      });
+    }
+    return orders;
+  }
+
+  async listInboundOrders(signal?: AbortSignal): Promise<SupplierInboundOrder[]> {
+    this.assertReady();
+    return this.sessions.run(
+      (s) => this.login(s),
+      async (session) => {
+        // Checkout orders and shipments need a supplier-side permission that
+        // is not present on every dealer login. Backorders remain available and
+        // are still imported when those two feeds answer 403.
+        const [checkout, shipmentPayload, backorders] = await Promise.all([
+          this.readOrderFeed(session, "/api/checkout/orders/all?page=1&limit=100", signal),
+          this.readOrderFeed(session, "/api/shipments?limit=200&offset=0", signal),
+          this.listBackorders(session, signal),
+        ]);
+        const shipments = Array.isArray(shipmentPayload?.items)
+          ? shipmentPayload.items as MpsShipment[]
+          : [];
+        const shipmentByOrderId = new Map<string, MpsShipment>();
+        for (const shipment of shipments) {
+          const linkedOrders = Array.isArray(shipment.orders) ? shipment.orders : [];
+          for (const linked of linkedOrders) {
+            const webOrderId = identifier((linked as { web_order_id?: unknown }).web_order_id, 80);
+            if (webOrderId) shipmentByOrderId.set(webOrderId, shipment);
+          }
+        }
+        const checkoutRows = Array.isArray(checkout?.results)
+          ? checkout.results as MpsCheckoutOrder[]
+          : [];
+        const webOrders = checkoutRows
+          .map((order) => this.mapCheckoutOrder(order, shipmentByOrderId.get(identifier(order.id, 80) ?? "")))
+          .filter((order): order is SupplierInboundOrder => order !== null);
+        const deduped = new Map<string, SupplierInboundOrder>();
+        for (const order of [...webOrders, ...backorders]) deduped.set(order.externalId, order);
+        return [...deduped.values()];
+      },
       signal,
     );
   }

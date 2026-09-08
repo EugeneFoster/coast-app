@@ -106,7 +106,8 @@ Add these under the service's **Variables** tab:
 | `mercury_link` / `mercury_login` / `mercury_password` | Mercury dealer portal (supplier lookup, server-side only) |
 | `marinepartssupply_link` / `_login` / `_password` | Marine Parts Supply portal (server-side only) |
 | `westernmarine_link` / `_login` / `_password` | Western Marine portal (server-side only) |
-| `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET` / `XERO_REDIRECT_URI` | Reserved for the Xero integration (no client implemented yet) |
+| `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET` / `XERO_REDIRECT_URI` | Xero OAuth application credentials and callback URL |
+| `XERO_TOKEN_ENCRYPTION_KEY` | High-entropy server secret used to encrypt Xero refresh tokens at rest |
 
 Configured accounts (`ADMIN_*`, `DRAW_*`) are created/synced automatically on first sign-in.
 
@@ -325,14 +326,26 @@ seam.
 
 ### Xero
 
-`XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, and `XERO_REDIRECT_URI` are provisioned,
-but this repository contains no Xero client — no OAuth flow, token store, or API
-call. The accounting sync seam (`src/lib/xero/sync.ts`) therefore reports
-"not configured" on every approval card, and a change is never recorded as synced
-when it was not. Connecting Xero means implementing `XeroSyncAdapter` and swapping
-one export; the approval gate already sits in front of it, and a failed sync
-surfaces as a `sync_failed` notification with a retry that reuses the original
-idempotency key.
+Owners and inventory managers connect Xero from `/inventory`. OAuth tokens are
+encrypted at rest with `XERO_TOKEN_ENCRYPTION_KEY`; the browser never receives a
+refresh token. The first connection imports every Xero Item, links existing CRM
+items by SKU, records tracked quantities through the inventory reconciliation
+ledger, and classifies the catalogue into marine-specific categories. Later CRM
+item edits push to Xero immediately, while **Sync Xero now** pulls Xero-side edits
+and flags concurrent edits as conflicts instead of overwriting them silently.
+
+Xero's Items API does not accept direct quantity adjustments. Tracked quantity is
+therefore pulled from Xero; purchase receipts and manual CRM adjustments remain
+in the CRM stock ledger unless/until the corresponding Xero bill/invoice workflow
+is configured. The application never invents an accounting transaction merely to
+force the quantities to match.
+
+Marine Parts Supply inbound orders use the supplier's authenticated order,
+backorder, and shipment feeds. Ordered lines are inserted into the catalogue at
+zero on-hand and shown as incoming. Only the existing explicit receive action
+creates stock. Some dealer accounts (including the currently configured account)
+can read backorders but receive HTTP 403 for web-order/shipment feeds; those
+statuses activate automatically if the supplier grants the missing permission.
 
 Validate the P11 migration, proposal isolation, rejection, single execution,
 double-approve protection, stale re-approval, audit immutability, and role

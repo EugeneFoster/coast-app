@@ -115,6 +115,8 @@ export interface SupplierCapabilities {
   warehouse: boolean;
   eta: boolean;
   supplierSku: boolean;
+  /** Whether authenticated purchasing/delivery data can be imported. */
+  orders?: boolean;
 }
 
 export const NO_CAPABILITIES: SupplierCapabilities = {
@@ -170,10 +172,50 @@ export interface SupplierAdapter {
     signal?: AbortSignal,
   ): Promise<SupplierPartResult | null>;
 
+  /** Optional authenticated inbound-order feed. Never places an order. */
+  listInboundOrders?(signal?: AbortSignal): Promise<SupplierInboundOrder[]>;
+
   healthCheck(signal?: AbortSignal): Promise<SupplierHealth>;
 
   /** Release sessions/resources. Safe to call repeatedly. */
   close(): Promise<void>;
+}
+
+export type SupplierDeliveryStatus =
+  | "ordered"
+  | "confirmed"
+  | "processing"
+  | "backordered"
+  | "shipped"
+  | "delivered"
+  | "cancelled"
+  | "unknown";
+
+export interface SupplierInboundOrderItem {
+  externalLineId: string;
+  partNumber: string;
+  description: string;
+  quantity: number;
+  quantityShipped: number;
+  quantityBackordered: number;
+  unitPrice: number;
+}
+
+export interface SupplierInboundOrder {
+  supplier: SupplierId;
+  externalId: string;
+  orderNumber: string;
+  purchaseOrderNumber: string | null;
+  status: SupplierDeliveryStatus;
+  rawStatus: string | null;
+  orderedAt: string;
+  expectedAt: string | null;
+  subtotal: number;
+  carrierName: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  shippedAt: string | null;
+  items: SupplierInboundOrderItem[];
 }
 
 /** Per-supplier outcome of one search fan-out. */

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Archive,
+  Bell,
   Boxes,
   BriefcaseBusiness,
   CalendarDays,
@@ -24,7 +25,6 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ApprovalsBell } from "@/components/approvals-bell";
 import type { Profile } from "@/lib/types";
 import { signOut } from "@/lib/actions/session";
 import {
@@ -194,7 +194,7 @@ function Account({ profile, compact = false }: { profile: Profile; compact?: boo
   );
 }
 
-function Topbar({ profile, onOpenMenu }: { profile: Profile; onOpenMenu: () => void }) {
+function Topbar({ profile, approvalBadge, onOpenMenu }: { profile: Profile; approvalBadge: number; onOpenMenu: () => void }) {
   const pathname = usePathname();
   const segment = pathname.split("/").filter(Boolean)[0] ?? "projects";
   const current = routeNames[segment] ?? { section: "Workspace", label: "COAST" };
@@ -213,7 +213,12 @@ function Topbar({ profile, onOpenMenu }: { profile: Profile; onOpenMenu: () => v
           <kbd className="rounded-[3px] border border-rule px-1.5 py-0.5 font-mono text-[10px] text-graph">⌘K</kbd>
         </label>
       </div>
-      {canProposeSupplierChange(profile.role) && <ApprovalsBell />}
+      {canProposeSupplierChange(profile.role) && (
+        <Link href="/approvals" aria-label={approvalBadge ? `Approvals — ${approvalBadge} need attention` : "Approvals"} className="relative flex h-11 w-11 items-center justify-center rounded-[4px] border border-rule bg-paper text-ink">
+          <Bell size={18} strokeWidth={1.5} aria-hidden />
+          {approvalBadge > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-weld px-1.5 py-0.5 font-mono text-[9px] leading-none text-paper">{approvalBadge > 99 ? "99+" : approvalBadge}</span>}
+        </Link>
+      )}
       <button type="button" className="flex h-11 w-11 items-center justify-center rounded-[4px] border border-rule bg-paper text-ink sm:hidden" aria-label="Search">
         <Search size={19} strokeWidth={1.5} aria-hidden />
       </button>
@@ -252,7 +257,7 @@ function MobileBottomNav({ profile, onMore }: { profile: Profile; onMore: () => 
   );
 }
 
-export function AppShell({ profile, children }: { profile: Profile; children: React.ReactNode }) {
+export function AppShell({ profile, approvalBadge = 0, children }: { profile: Profile; approvalBadge?: number; children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -283,7 +288,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar profile={profile} onOpenMenu={() => setMenuOpen(true)} />
+          <Topbar profile={profile} approvalBadge={approvalBadge} onOpenMenu={() => setMenuOpen(true)} />
         <main className="app-content flex-1">{children}</main>
       </div>
       <MobileBottomNav profile={profile} onMore={() => setMenuOpen(true)} />

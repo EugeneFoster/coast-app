@@ -40,7 +40,7 @@ export default async function InventoryItemPage({
   if (!data) notFound();
   const item = data as ItemRow;
 
-  const [suppliers, movementResult] = await Promise.all([
+  const [suppliers, movementResult, inboundResult] = await Promise.all([
     canManage ? getSupplierOptions() : Promise.resolve([]),
     showPurchasing
       ? supabase
@@ -50,11 +50,27 @@ export default async function InventoryItemPage({
           .order("occurred_at", { ascending: false })
           .limit(100)
       : Promise.resolve({ data: [] }),
+    supabase
+      .from("purchase_order_items")
+      .select("quantity, quantity_received, purchase_orders(status, shipping_status, expected_date)")
+      .eq("inventory_item_id", itemId),
   ]);
   const movements = (movementResult.data ?? []) as InventoryMovement[];
   const inventoryValue = Number(item.quantity_on_hand) * Number(item.average_cost);
   const lowStock =
     item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
+  const inboundLines = (inboundResult.data ?? []) as unknown as Array<{
+    quantity: number;
+    quantity_received: number;
+    purchase_orders: { status: string; shipping_status: string; expected_date: string | null } | null;
+  }>;
+  const openInbound = inboundLines.filter((line) =>
+    line.purchase_orders && ["ordered", "partially_received"].includes(line.purchase_orders.status),
+  );
+  const incomingQuantity = openInbound.reduce(
+    (sum, line) => sum + Math.max(0, Number(line.quantity) - Number(line.quantity_received)),
+    0,
+  );
 
   return (
     <main className="mt-7">
@@ -62,7 +78,12 @@ export default async function InventoryItemPage({
         ← Stock catalog
       </Link>
       <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
-        <div>
+        <div className="flex items-start gap-3">
+          {item.image_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={item.image_url} alt="" className="h-16 w-16 shrink-0 rounded border border-rule bg-paper object-contain" />
+          )}
+          <div>
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="font-display text-2xl font-medium text-ink">{item.name}</h2>
             <span
@@ -74,19 +95,26 @@ export default async function InventoryItemPage({
             </span>
           </div>
           <p className="mt-2 font-mono text-xs text-graph">{item.sku}</p>
+          {item.manufacturer && <p className="mt-1 text-xs text-graph">{item.manufacturer}</p>}
+          </div>
         </div>
         <span className="rounded bg-ink/5 px-3 py-2 text-sm text-graph">
           {inventoryCategoryLabel(item.category)}
         </span>
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="rounded border border-rule bg-paper p-4">
           <p className="text-xs uppercase tracking-wide text-graph">On hand</p>
           <p className={`mt-2 font-mono text-xl ${lowStock ? "text-weld" : "text-ink"}`}>
             {formatQuantity(item.quantity_on_hand, item.unit)}
           </p>
         </div>
+        <Link href="/inventory/purchase-orders" className="rounded border border-rule bg-paper p-4 hover:border-blue-300">
+          <p className="text-xs uppercase tracking-wide text-graph">Incoming</p>
+          <p className="mt-2 font-mono text-xl text-blue-700">{formatQuantity(incomingQuantity, item.unit)}</p>
+          <p className="mt-1 text-xs text-graph">{openInbound.length} open order lines</p>
+        </Link>
         <div className="rounded border border-rule bg-paper p-4">
           <p className="text-xs uppercase tracking-wide text-graph">Reorder point</p>
           <p className="mt-2 font-mono text-xl text-ink">
@@ -108,7 +136,7 @@ export default async function InventoryItemPage({
       </div>
 
       <section className="mt-6 rounded border border-rule bg-paper p-5">
-        <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <dt className="text-xs text-graph">Location</dt>
             <dd className="mt-1 text-ink">{item.location ?? "—"}</dd>
@@ -126,6 +154,13 @@ export default async function InventoryItemPage({
           <div>
             <dt className="text-xs text-graph">Description</dt>
             <dd className="mt-1 text-ink">{item.description ?? "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-graph">Xero sync</dt>
+            <dd className={`mt-1 ${item.xero_sync_status === "synced" ? "text-emerald-700" : item.xero_sync_status === "failed" || item.xero_sync_status === "conflict" ? "text-weld-text" : "text-graph"}`}>
+              {item.xero_sync_status.replaceAll("_", " ")}
+            </dd>
+            {item.xero_sync_error && <p className="mt-1 text-xs text-weld-text">{item.xero_sync_error}</p>}
           </div>
         </dl>
       </section>
