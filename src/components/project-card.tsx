@@ -3,9 +3,20 @@ import type { Project } from "@/lib/types";
 import { StatusChip } from "@/components/status-chip";
 import { StatusSelect } from "@/components/status-select";
 import { ProjectCardNameEditor } from "@/components/project-card-name-editor";
-import { StructureThumbnail } from "@/components/structure-thumbnail";
+import {
+  StructureThumbnail,
+  resolveStructureType,
+} from "@/components/structure-thumbnail";
 import { CoverImage } from "@/components/cover-image";
 import { resolveCoverUrl } from "@/lib/covers";
+
+const STRUCTURE_LABELS: Record<string, string> = {
+  dock: "Dock",
+  wharf: "Wharf",
+  pontoon: "Pontoon",
+  ramp: "Ramp",
+  other: "Structure",
+};
 
 export function ProjectCard({
   project,
@@ -18,9 +29,11 @@ export function ProjectCard({
   const revision = project.revision ?? 1;
   const drawings = project.drawing_count ?? 0;
   const coverSrc = resolveCoverUrl(project.cover_url);
+  const kicker =
+    STRUCTURE_LABELS[resolveStructureType(project.name, project.structure_type)];
 
   return (
-    <article className="flex flex-col overflow-hidden rounded-xl border border-rule bg-paper transition-colors hover:border-ink/30">
+    <article className="flex flex-col overflow-hidden rounded-md border border-rule bg-paper transition-colors hover:border-ink/30">
       <Link href={`/projects/${project.id}`} className="block">
         {coverSrc ? (
           <div className="h-32 overflow-hidden border-b border-rule bg-paper">
@@ -40,6 +53,7 @@ export function ProjectCard({
       </Link>
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div>
+          <p className="kicker">{kicker}</p>
           {canEdit ? (
             <ProjectCardNameEditor
               projectId={project.id}
@@ -47,7 +61,7 @@ export function ProjectCard({
             />
           ) : (
             <Link href={`/projects/${project.id}`}>
-              <h3 className="font-display text-lg font-medium leading-tight text-ink">
+              <h3 className="mt-1 font-display text-lg font-medium leading-tight text-ink">
                 {project.name}
               </h3>
             </Link>
@@ -65,7 +79,7 @@ export function ProjectCard({
             <StatusChip status={project.status} />
           )}
           <span className="shrink-0 font-mono text-xs text-graph">
-            rev{revision} · {drawings}
+            rev{revision} · {drawings} dwg
           </span>
         </div>
       </div>
