@@ -163,3 +163,27 @@ export function canViewCounterSales(role: UserRole) {
 export function canManageProjectFinancials(role: UserRole) {
   return role === "owner" || role === "accounting";
 }
+
+/**
+ * Supplier-driven change approvals. These mirror the database functions
+ * `can_propose_supplier_change()` and `can_approve_supplier_change()` — the
+ * database is the enforcement point, and these exist so the UI can hide
+ * controls the user could not use anyway.
+ */
+export function canProposeSupplierChange(role: UserRole) {
+  return (
+    role === "owner" ||
+    role === "project_manager" ||
+    role === "draftsperson" ||
+    role === "parts"
+  );
+}
+
+/**
+ * Deliberately narrower than canManageProjects: approving moves money and can
+ * reach the accounting system, so it is limited to the roles that manage both
+ * operations and billing.
+ */
+export function canApproveSupplierChange(role: UserRole) {
+  return role === "owner" || role === "project_manager";
+}

@@ -689,3 +689,88 @@ export interface MarkupWithThread extends DrawingMarkup {
   comments: MarkupComment[];
   photos: MarkupPhoto[];
 }
+
+export type ChangeApprovalActionType =
+  | "add_work_order_material"
+  | "update_work_order_material_cost"
+  | "replace_superseded_part"
+  | "remove_work_order_material"
+  | "update_inventory_item_cost";
+
+export type ChangeApprovalEntityType = "material_entry" | "inventory_item";
+
+export type ChangeApprovalStatus =
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "executing"
+  | "executed"
+  | "failed"
+  | "stale_requires_reapproval";
+
+/** What an approved change will do in the accounting system. */
+export type XeroImpact =
+  | "none"
+  | "not_configured"
+  | "item_create"
+  | "item_update"
+  | "invoice_line_update"
+  | "unknown";
+
+export type ExternalSyncStatus = "not_required" | "pending" | "synced" | "failed";
+
+export interface ChangeApprovalRequest {
+  id: string;
+  action_type: ChangeApprovalActionType;
+  entity_type: ChangeApprovalEntityType;
+  entity_id: string | null;
+  parent_entity_id: string | null;
+  supplier: string | null;
+  source_part_number: string | null;
+  proposed_part_number: string | null;
+  summary: string;
+  proposed_changes: Record<string, unknown>;
+  current_values: Record<string, unknown>;
+  xero_impact: XeroImpact;
+  xero_impact_detail: string | null;
+  supplier_checked_at: string | null;
+  status: ChangeApprovalStatus;
+  requested_by: string;
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  rejection_reason: string | null;
+  executing_at: string | null;
+  executed_at: string | null;
+  execution_status: "succeeded" | "failed" | null;
+  execution_error: string | null;
+  result_entity_id: string | null;
+  external_sync_status: ExternalSyncStatus;
+  external_sync_error: string | null;
+  external_sync_at: string | null;
+  idempotency_key: string;
+  updated_at: string;
+  requester?: { full_name: string | null; login: string } | null;
+  decider?: { full_name: string | null; login: string } | null;
+}
+
+export type NotificationKind =
+  | "info"
+  | "approval_request"
+  | "approval_decided"
+  | "approval_stale"
+  | "sync_failed";
+
+export interface AppNotification {
+  id: string;
+  recipient_id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string | null;
+  approval_request_id: string | null;
+  link_path: string | null;
+  read_at: string | null;
+  created_at: string;
+}

@@ -3,6 +3,8 @@ import { connectToSupabaseDatabase } from "./lib/supabase-db.mjs";
 const expectedTables = [
   "clients",
   "client_contacts",
+  "change_approval_events",
+  "change_approval_requests",
   "counter_sale_item_costs",
   "counter_sale_items",
   "counter_sales",
@@ -21,6 +23,7 @@ const expectedTables = [
   "material_entries",
   "markup_comments",
   "markup_photos",
+  "notifications",
   "profiles",
   "project_members",
   "project_models",
@@ -207,6 +210,14 @@ try {
   );
   const projectModelPolicies = policyKeys.includes(
     "public.project_models.project_models_read",
+  );
+  const supplierApprovalPolicyNames = [
+    "public.change_approval_requests.change_approval_requests_read",
+    "public.change_approval_events.change_approval_events_read",
+    "public.notifications.notifications_read_own",
+  ];
+  const supplierApprovalPolicies = supplierApprovalPolicyNames.every((policy) =>
+    policyKeys.includes(policy),
   );
   const projectAccountingPolicyAbsent = !policyKeys.includes(
     "public.projects.projects_operations_accounting_read",
@@ -526,6 +537,50 @@ try {
     join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and p.proname in ('register_project_model', 'set_primary_project_model')
+  `);
+
+  const { rows: supplierApprovalFunctionRows } = await client.query(`
+    select proname
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'can_propose_supplier_change',
+        'can_approve_supplier_change',
+        'create_change_approval_request',
+        'decide_change_approval_request',
+        'execute_change_approval_crm',
+        'fail_change_approval_execution',
+        'mark_change_approval_stale',
+        'record_external_sync_result',
+        'mark_notifications_read'
+      )
+  `);
+
+  const { rows: supplierApprovalSecurityRows } = await client.query(`
+    select relname, relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in (
+        'change_approval_requests', 'change_approval_events', 'notifications'
+      )
+  `);
+
+  const { rows: supplierApprovalPrivilegeRows } = await client.query(`
+    select p.proname,
+           has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_execute
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'execute_change_approval_crm',
+        'begin_change_approval_execution',
+        'complete_change_approval_execution',
+        'fail_change_approval_execution',
+        'mark_change_approval_stale',
+        'record_external_sync_result'
+      )
   `);
 
   const { rows: mismatchRows } = await client.query(`
@@ -1152,6 +1207,34 @@ try {
     "register_project_model",
     "set_primary_project_model",
   ].every((name) => projectModelFunctions.includes(name));
+  const supplierApprovalFunctions = supplierApprovalFunctionRows.map(({ proname }) => proname);
+  const supplierApprovalWorkflowFunctions = [
+    "can_propose_supplier_change",
+    "can_approve_supplier_change",
+    "create_change_approval_request",
+    "decide_change_approval_request",
+    "execute_change_approval_crm",
+    "fail_change_approval_execution",
+    "mark_change_approval_stale",
+    "record_external_sync_result",
+    "mark_notifications_read",
+  ].every((name) => supplierApprovalFunctions.includes(name));
+  const supplierApprovalRls =
+    supplierApprovalSecurityRows.length === 3 &&
+    supplierApprovalSecurityRows.every(({ relrowsecurity }) => relrowsecurity === true);
+  const supplierApprovalPrivileges = new Map(
+    supplierApprovalPrivilegeRows.map(({ proname, authenticated_execute }) => [
+      proname,
+      authenticated_execute,
+    ]),
+  );
+  const supplierApprovalExecutionPrivileges =
+    supplierApprovalPrivileges.get("execute_change_approval_crm") === true &&
+    supplierApprovalPrivileges.get("fail_change_approval_execution") === true &&
+    supplierApprovalPrivileges.get("mark_change_approval_stale") === true &&
+    supplierApprovalPrivileges.get("record_external_sync_result") === true &&
+    supplierApprovalPrivileges.get("begin_change_approval_execution") === false &&
+    supplierApprovalPrivileges.get("complete_change_approval_execution") === false;
   const drawingCountMismatches = mismatchRows[0]?.count ?? 0;
   const customerIntegrity = customerIntegrityRows[0] ?? {
     clients: 0,
@@ -1302,6 +1385,10 @@ try {
     projectModelWorkflowFunctions &&
     projectModelIntegrity.duplicate_primary_models === 0 &&
     projectModelIntegrity.project_model_url_mismatches === 0 &&
+    supplierApprovalPolicies &&
+    supplierApprovalRls &&
+    supplierApprovalWorkflowFunctions &&
+    supplierApprovalExecutionPrivileges &&
     customerIntegrity.missing_contacts === 0 &&
     drawingCountMismatches === 0;
 
@@ -1370,6 +1457,12 @@ try {
       projectModelsRls,
       projectModelWorkflowFunctions,
       projectModelIntegrity,
+    },
+    supplierApprovals: {
+      supplierApprovalPolicies,
+      supplierApprovalRls,
+      supplierApprovalWorkflowFunctions,
+      supplierApprovalExecutionPrivileges,
     },
     policies: { count: policyRows.length },
     drawingCountMismatches,
