@@ -282,7 +282,9 @@ on its own, so a slow portal never holds up the ones that already answered.
 Looking things up is read-only. Nothing a supplier says is written to the CRM
 automatically: acting on a result raises a **change approval request**, and the
 part, cost, or part number only changes once an owner or project manager presses
-Approve on `/approvals`. Rejecting leaves everything untouched.
+Approve on `/approvals`. From a work order, a result can be proposed as a new
+line, a verified cost update for a matching existing line, or a supplier-reported
+supersession. Rejecting leaves everything untouched.
 
 The guarantees are enforced in the database, not in the UI:
 
@@ -290,10 +292,11 @@ The guarantees are enforced in the database, not in the UI:
   through a `SECURITY DEFINER` function that checks the caller's role first.
 - Deciding takes a row lock, so a simultaneous approve and reject serialise and
   the loser is told the request is already decided.
-- Execution is claimed with a compare-and-set from `approved` to `executing`,
-  so a double-clicked Approve applies the change exactly once.
-- Applying runs as the approver, so row level security still applies — approval
-  is not a way around the permissions a user already has.
+- The approved CRM mutation and its `executed` lifecycle transition happen in
+  one locked database transaction, so a crash cannot apply a row while leaving
+  the request stuck, and a double-click cannot apply it twice.
+- The atomic execution function checks the approver role itself. Legacy split
+  execution helpers are not granted to client roles.
 - If the supplier data behind a decision is more than five minutes old it is
   re-read before the change lands. A moved price, part number, supersession,
   currency, or availability sends the request back for re-approval rather than
@@ -309,7 +312,7 @@ request, so the integration cannot be pointed at an arbitrary host.
 
 | Supplier | State | Notes |
 |---|---|---|
-| **Marine Parts Supply** | **Live** | FastAPI backend, OAuth2 password grant, `GET /api/inventory/search`. Verified end to end against the dealer account: the authenticated `current_price` is the account price and differs from `price_retail`. Supersession comes from the part detail endpoint's `substitutes`. |
+| **Marine Parts Supply** | **Live** | FastAPI backend, OAuth2 password grant, `GET /api/inventory/search`. Verified end to end against the dealer account: the authenticated `current_price` is the account price and differs from `price_retail`. Exact search rows are enriched from the part detail endpoint so its `substitutes` supersession is visible in the work-order flow. |
 | Western Marine | Login mapped, search pending | Portal is Strategi by ADVANCED BusinessLink over IBM i. The HTTP Basic handshake (`/Store/homepage.html?Location=001` → `*AUTHENTICATE` → Basic) is implemented; the authenticated Store search endpoint still needs capturing. `Location=001` is Western Marine, `002` is Transat Marine. |
 | Mercury | Blocked | MercNET answers 403 to server-side requests and is normally signed into by hand. Needs either an official dealer API credential or an allow-listed service account — this integration does not attempt to defeat bot protection. |
 

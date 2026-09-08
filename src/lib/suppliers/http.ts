@@ -159,9 +159,17 @@ export async function supplierFetch(
       if (hop === MAX_REDIRECTS) {
         throw new SupplierError(supplier, "SUPPLIER_UNAVAILABLE", "too many redirects");
       }
+      const redirected = new URL(location, currentUrl);
+      if (redirected.origin !== new URL(currentUrl).origin) {
+        throw new SupplierError(
+          supplier,
+          "SUPPLIER_UNAVAILABLE",
+          "refused a cross-origin supplier redirect",
+        );
+      }
       // Drain the body so the socket can be reused.
       await response.arrayBuffer().catch(() => undefined);
-      currentUrl = new URL(location, currentUrl).toString();
+      currentUrl = redirected.toString();
       // 303 (and 301/302 in practice) downgrade to GET without a body.
       if (response.status !== 307 && response.status !== 308) {
         currentMethod = "GET";

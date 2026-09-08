@@ -179,8 +179,8 @@ try {
   const workOrderId = workOrderRows[0].id;
   const { rows: materialRows } = await client.query(
     `insert into public.material_entries
-       (work_order_id, description, quantity, unit, unit_cost, entered_by)
-     values ($1, 'Existing impeller', 1, 'ea', 88.00, $2)
+       (work_order_id, description, part_number, quantity, unit, unit_cost, entered_by)
+     values ($1, 'Existing impeller', '18-3214', 1, 'ea', 88.00, $2)
      returning id`,
     [workOrderId, seed.id],
   );
@@ -246,12 +246,12 @@ try {
 
   // Rejected requests can never be executed.
   await setRole(seed.id, "owner");
-  const { rows: rejectedClaim } = await client.query(
-    "select public.begin_change_approval_execution($1) as result",
+  const { rows: rejectedExecution } = await client.query(
+    "select public.execute_change_approval_crm($1) as result",
     [rejectedId],
   );
-  expectEqual(rejectedClaim[0].result.ok, false, "Rejected request claimable");
-  expectEqual(rejectedClaim[0].result.code, "not_executable", "Rejected claim code");
+  expectEqual(rejectedExecution[0].result.ok, false, "Rejected request executable");
+  expectEqual(rejectedExecution[0].result.code, "not_executable", "Rejected execution code");
 
   // Deciding twice loses the race cleanly.
   const secondDecision = await decide(rejectedId, "approved");
@@ -263,7 +263,7 @@ try {
   const approval = await decide(approvedId, "approved");
   expectEqual(approval.code, "approved", "Approval code");
 
-  // Approval alone still changes nothing — execution is a separate, claimed step.
+  // Approval alone still changes nothing — execution is a separate atomic step.
   await assumeDatabaseOwner();
   expectNumber(
     await materialCount(workOrderId),
@@ -271,41 +271,76 @@ try {
     "Material count after approve (before execute)",
   );
 
+  // Every mutating SECURITY DEFINER helper must enforce the approver role on
+  // its own; hiding a button or an RPC behind RLS is not authorization.
+  await setRole(welder, "welder");
+  await expectFailure("welder_execute", () =>
+    client.query("select public.execute_change_approval_crm($1)", [approvedId]),
+  );
+  await expectFailure("welder_fail_execution", () =>
+    client.query("select public.fail_change_approval_execution($1, $2)", [
+      approvedId,
+      "forged failure",
+    ]),
+  );
+  await expectFailure("welder_mark_stale", () =>
+    client.query(
+      `select public.mark_change_approval_stale(
+         $1, $2, $3::jsonb, $4::jsonb, $5, $6::timestamptz, $7::jsonb
+       )`,
+      [
+        approvedId,
+        "forged stale state",
+        "{}",
+        JSON.stringify({ unit_cost: 0 }),
+        "18-3214",
+        new Date().toISOString(),
+        "{}",
+      ],
+    ),
+  );
+  await expectFailure("welder_record_sync", () =>
+    client.query("select public.record_external_sync_result($1, $2, $3)", [
+      approvedId,
+      "failed",
+      "forged sync failure",
+    ]),
+  );
+
   await setRole(seed.id, "owner");
-  const { rows: firstClaim } = await client.query(
-    "select public.begin_change_approval_execution($1) as result",
+  await expectFailure("legacy_split_execution", () =>
+    client.query("select public.begin_change_approval_execution($1)", [approvedId]),
+  );
+  const { rows: firstExecution } = await client.query(
+    "select public.execute_change_approval_crm($1) as result",
     [approvedId],
   );
-  expectEqual(firstClaim[0].result.ok, true, "First execution claim");
+  expectEqual(firstExecution[0].result.ok, true, "First execution");
+  const insertedMaterialId = firstExecution[0].result.resultEntityId;
+  if (!insertedMaterialId) throw new Error("Atomic execution did not return the inserted material id.");
 
-  // The double-click case: a second claim must not succeed.
-  const { rows: secondClaim } = await client.query(
-    "select public.begin_change_approval_execution($1) as result",
+  // The double-click case: a second execution must not mutate data again.
+  const { rows: secondExecution } = await client.query(
+    "select public.execute_change_approval_crm($1) as result",
     [approvedId],
   );
-  expectEqual(secondClaim[0].result.ok, false, "Second execution claim");
-  expectEqual(secondClaim[0].result.code, "not_executable", "Second claim code");
+  expectEqual(secondExecution[0].result.ok, false, "Second execution");
+  expectEqual(secondExecution[0].result.code, "not_executable", "Second execution code");
 
-  await assumeDatabaseOwner();
-  const { rows: insertedRows } = await client.query(
-    `insert into public.material_entries
-       (work_order_id, description, part_number, quantity, unit, unit_cost, entered_by)
-     values ($1, 'Water Pump Kit', '18-3214', 1, 'ea', 94.30, $2)
-     returning id`,
-    [workOrderId, seed.id],
-  );
+  // Accounting is intentionally outside the CRM transaction and records its
+  // own durable outcome after the business mutation commits.
   await setRole(seed.id, "owner");
-  const { rows: completion } = await client.query(
-    "select public.complete_change_approval_execution($1, $2, $3, $4) as result",
-    [approvedId, insertedRows[0].id, "failed", "Xero is not configured"],
+  const { rows: syncFailure } = await client.query(
+    "select public.record_external_sync_result($1, $2, $3) as result",
+    [approvedId, "failed", "Xero is not configured"],
   );
-  expectEqual(completion[0].result.ok, true, "Completion ok");
+  expectEqual(syncFailure[0].result.ok, true, "Sync result recorded");
 
   const executed = await readRequest(approvedId);
   expectEqual(executed.status, "executed", "Executed status");
   expectEqual(executed.execution_status, "succeeded", "Execution status");
   expectEqual(executed.external_sync_status, "failed", "Sync status");
-  expectEqual(executed.result_entity_id, insertedRows[0].id, "Result entity");
+  expectEqual(executed.result_entity_id, insertedMaterialId, "Result entity");
   expectNumber(
     await materialCount(workOrderId),
     baselineMaterials + 1,
@@ -347,13 +382,29 @@ try {
 
   // --- stale supplier data forces re-approval ------------------------------
   await setRole(seed.id, "owner");
-  const { id: staleId } = await propose({ parentEntityId: workOrderId });
+  const { id: staleId } = await propose({
+    actionType: "update_work_order_material_cost",
+    entityId: existingMaterialId,
+    parentEntityId: workOrderId,
+    summary: "Update Existing impeller cost",
+    proposedChanges: { unit_cost: 124.5 },
+    currentValues: { unit_cost: 88, dealerCost: 124.5 },
+  });
   await decide(staleId, "approved");
+  const refreshedAt = new Date().toISOString();
   const { rows: staleResult } = await client.query(
     `select public.mark_change_approval_stale(
-       $1, 'Supplier price moved from $124.50 to $139.20', $2::jsonb, $3::jsonb
+       $1, 'Supplier price moved from $124.50 to $139.20', $2::jsonb,
+       $3::jsonb, $4, $5::timestamptz, $6::jsonb
      ) as result`,
-    [staleId, JSON.stringify({ dealerCost: 139.2 }), JSON.stringify({ reason: "price_changed" })],
+    [
+      staleId,
+      JSON.stringify({ unit_cost: 88, dealerCost: 139.2 }),
+      JSON.stringify({ unit_cost: 139.2 }),
+      "18-3214",
+      refreshedAt,
+      JSON.stringify({ reason: "price_changed" }),
+    ],
   );
   expectEqual(staleResult[0].result.ok, true, "Stale marking ok");
 
@@ -361,19 +412,64 @@ try {
   expectEqual(stale.status, "stale_requires_reapproval", "Stale status");
   expectEqual(stale.decided_at, null, "Stale decision cleared");
   expectEqual(stale.decided_by, null, "Stale decider cleared");
+  expectNumber(stale.proposed_changes.unit_cost, 139.2, "Refreshed proposed cost");
+  expectEqual(stale.proposed_part_number, "18-3214", "Refreshed proposed part number");
 
   await setRole(seed.id, "owner");
-  const { rows: staleClaim } = await client.query(
-    "select public.begin_change_approval_execution($1) as result",
+  const { rows: staleExecution } = await client.query(
+    "select public.execute_change_approval_crm($1) as result",
     [staleId],
   );
-  expectEqual(staleClaim[0].result.ok, false, "Stale request claimable");
+  expectEqual(staleExecution[0].result.ok, false, "Stale request executable");
 
   // It can be decided again, which is the whole point.
   const reapproval = await decide(staleId, "approved");
   expectEqual(reapproval.ok, true, "Re-approval ok");
+  const { rows: refreshedExecution } = await client.query(
+    "select public.execute_change_approval_crm($1) as result",
+    [staleId],
+  );
+  expectEqual(refreshedExecution[0].result.ok, true, "Refreshed execution");
+  await assumeDatabaseOwner();
+  const { rows: refreshedMaterial } = await client.query(
+    "select unit_cost from public.material_entries where id = $1",
+    [existingMaterialId],
+  );
+  expectNumber(refreshedMaterial[0].unit_cost, 139.2, "Executed refreshed cost");
+
+  // A supersession changes only the part number. Older pending requests may
+  // contain the old part's description or price; execution must ignore them.
+  await setRole(seed.id, "owner");
+  const { id: replacementId } = await propose({
+    actionType: "replace_superseded_part",
+    entityId: existingMaterialId,
+    parentEntityId: workOrderId,
+    proposedPartNumber: "BRP330137",
+    summary: "Replace 18-3214 with BRP330137",
+    proposedChanges: {
+      part_number: "BRP330137",
+      description: "Wrong replacement description",
+      unit_cost: 1,
+    },
+    currentValues: { part_number: "18-3214", unit_cost: 139.2 },
+  });
+  await decide(replacementId, "approved");
+  const { rows: replacementExecution } = await client.query(
+    "select public.execute_change_approval_crm($1) as result",
+    [replacementId],
+  );
+  expectEqual(replacementExecution[0].result.ok, true, "Replacement execution");
+  await assumeDatabaseOwner();
+  const { rows: replacedMaterial } = await client.query(
+    "select description, part_number, unit_cost from public.material_entries where id = $1",
+    [existingMaterialId],
+  );
+  expectEqual(replacedMaterial[0].part_number, "BRP330137", "Replacement part number");
+  expectEqual(replacedMaterial[0].description, "Existing impeller", "Replacement description");
+  expectNumber(replacedMaterial[0].unit_cost, 139.2, "Replacement preserved cost");
 
   // --- idempotent proposals ------------------------------------------------
+  await setRole(seed.id, "owner");
   const repeatKey = `check-repeat-${suffix}`;
   const first = await propose({ parentEntityId: workOrderId, idempotencyKey: repeatKey });
   const second = await propose({ parentEntityId: workOrderId, idempotencyKey: repeatKey });

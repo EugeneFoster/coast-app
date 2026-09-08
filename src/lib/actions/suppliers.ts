@@ -101,6 +101,7 @@ export async function proposeSupplierChangeAction(
   let workOrderId: string | null = null;
   let materialEntryId: string | null = null;
   let currentValues: Record<string, unknown> = {};
+  let lookupPartNumber = partNumber;
 
   if (input.actionType === "add_work_order_material") {
     workOrderId = input.workOrderId ?? null;
@@ -134,6 +135,18 @@ export async function proposeSupplierChangeAction(
         message: "This line came from a warehouse issue and must be changed through inventory.",
       };
     }
+    if (!entry.part_number) {
+      return { status: "error", message: "This material line has no part number to verify." };
+    }
+    if (!partNumbersMatch(entry.part_number, partNumber)) {
+      return {
+        status: "error",
+        message: "The selected supplier result does not match this material line.",
+      };
+    }
+    // For edits, the database row — not the browser payload — decides which
+    // supplier part is looked up and priced.
+    lookupPartNumber = normalizePartNumber(entry.part_number);
     workOrderId = entry.work_order_id;
     currentValues = {
       description: entry.description,
@@ -145,7 +158,7 @@ export async function proposeSupplierChangeAction(
   }
 
   // --- server-side supplier lookup ----------------------------------------
-  const { result, message } = await resolveSupplierResult(input.supplier, partNumber);
+  const { result, message } = await resolveSupplierResult(input.supplier, lookupPartNumber);
   if (!result) {
     return { status: "error", message: message ?? "The supplier data could not be read." };
   }
@@ -183,8 +196,8 @@ export async function proposeSupplierChangeAction(
       return { status: "error", message: "The supplier does not report a replacement number." };
     }
     proposedChanges.part_number = result.supersededBy;
-    if (result.description) proposedChanges.description = result.description;
-    if (result.dealerCost !== null) proposedChanges.unit_cost = result.dealerCost;
+    // Detail responses describe and price the old part, not necessarily the
+    // substitute. Do not silently copy those fields onto the replacement.
     summary = `Replace ${result.searchedPartNumber} with ${result.supersededBy} (${result.supplierName})`;
   }
 

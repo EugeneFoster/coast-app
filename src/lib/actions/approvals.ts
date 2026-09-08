@@ -9,6 +9,7 @@ import {
 } from "@/lib/approvals";
 import { getApprovalRequest } from "@/lib/approvals-data";
 import { requireUser } from "@/lib/auth";
+import { canApproveSupplierChange } from "@/lib/employee-roles";
 import { logApproval } from "@/lib/suppliers/log";
 import { isSupplierError } from "@/lib/suppliers/errors";
 import { revalidateSupplierResult } from "@/lib/suppliers/search";
@@ -26,6 +27,7 @@ interface RpcResult {
   ok: boolean;
   code: string;
   status?: string;
+  resultEntityId?: string | null;
 }
 
 function refreshApprovalViews(request?: ChangeApprovalRequest | null) {
@@ -35,161 +37,6 @@ function refreshApprovalViews(request?: ChangeApprovalRequest | null) {
     // Work order pages are nested under their project; refreshing the list and
     // the work order index covers the places a material line is displayed.
     revalidatePath("/projects", "layout");
-  }
-}
-
-function numberFrom(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function textFrom(value: unknown, maxLength = 500): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed.slice(0, maxLength) : null;
-}
-
-/**
- * Apply an approved change to the CRM.
- *
- * Runs with the approver's own Supabase client, so row level security still
- * applies — approval does not become a way to bypass the permissions the user
- * would otherwise have. Returns the id of the row that was created or changed.
- */
-async function applyChange(
-  supabase: SupabaseServerClient,
-  request: ChangeApprovalRequest,
-  actorId: string,
-): Promise<string> {
-  const proposed = request.proposed_changes;
-
-  switch (request.action_type) {
-    case "add_work_order_material": {
-      const workOrderId = request.parent_entity_id;
-      if (!workOrderId) throw new Error("The proposal has no work order.");
-
-      const description = textFrom(proposed.description);
-      const quantity = numberFrom(proposed.quantity);
-      const unitCost = numberFrom(proposed.unit_cost) ?? 0;
-      if (!description) throw new Error("The proposal has no part description.");
-      if (quantity === null || quantity <= 0) {
-        throw new Error("The proposal has an invalid quantity.");
-      }
-      if (unitCost < 0) throw new Error("The proposal has a negative cost.");
-
-      const { data, error } = await supabase
-        .from("material_entries")
-        .insert({
-          work_order_id: workOrderId,
-          description,
-          part_number: textFrom(proposed.part_number, 100),
-          quantity,
-          unit: textFrom(proposed.unit, 20) ?? "ea",
-          unit_cost: unitCost,
-          entered_by: actorId,
-        })
-        .select("id")
-        .single();
-      if (error || !data) throw new Error(error?.message ?? "Could not add the part.");
-      return data.id;
-    }
-
-    case "update_work_order_material_cost":
-    case "replace_superseded_part": {
-      const entryId = request.entity_id;
-      if (!entryId) throw new Error("The proposal has no material line.");
-
-      const { data: existing, error: readError } = await supabase
-        .from("material_entries")
-        .select("id, inventory_movement_id")
-        .eq("id", entryId)
-        .maybeSingle();
-      if (readError) throw new Error(readError.message);
-      if (!existing) throw new Error("The material line no longer exists.");
-      if (existing.inventory_movement_id) {
-        // Warehouse-issued lines carry stock movements; editing them here would
-        // desynchronise inventory costing.
-        throw new Error("This line came from a warehouse issue and must be changed through inventory.");
-      }
-
-      const patch: Record<string, string | number> = {};
-      const unitCost = numberFrom(proposed.unit_cost);
-      if (unitCost !== null) {
-        if (unitCost < 0) throw new Error("The proposal has a negative cost.");
-        patch.unit_cost = unitCost;
-      }
-      const partNumber = textFrom(proposed.part_number, 100);
-      if (partNumber) patch.part_number = partNumber;
-      const description = textFrom(proposed.description);
-      if (description) patch.description = description;
-
-      if (Object.keys(patch).length === 0) {
-        throw new Error("The proposal contains no applicable changes.");
-      }
-
-      const { data, error } = await supabase
-        .from("material_entries")
-        .update(patch)
-        .eq("id", entryId)
-        .select("id")
-        .maybeSingle();
-      if (error || !data) throw new Error(error?.message ?? "Could not update the part.");
-      return data.id;
-    }
-
-    case "remove_work_order_material": {
-      const entryId = request.entity_id;
-      if (!entryId) throw new Error("The proposal has no material line.");
-
-      const { data: existing, error: readError } = await supabase
-        .from("material_entries")
-        .select("id, inventory_movement_id")
-        .eq("id", entryId)
-        .maybeSingle();
-      if (readError) throw new Error(readError.message);
-      if (!existing) throw new Error("The material line no longer exists.");
-      if (existing.inventory_movement_id) {
-        throw new Error("Warehouse issues must be reversed through inventory.");
-      }
-
-      const { error } = await supabase.from("material_entries").delete().eq("id", entryId);
-      if (error) throw new Error(error.message);
-      return entryId;
-    }
-
-    case "update_inventory_item_cost": {
-      const itemId = request.entity_id;
-      if (!itemId) throw new Error("The proposal has no inventory item.");
-
-      const patch: Record<string, number> = {};
-      const averageCost = numberFrom(proposed.average_cost);
-      if (averageCost !== null) {
-        if (averageCost < 0) throw new Error("The proposal has a negative cost.");
-        patch.average_cost = averageCost;
-      }
-      const sellingPrice = numberFrom(proposed.selling_price);
-      if (sellingPrice !== null) {
-        if (sellingPrice < 0) throw new Error("The proposal has a negative price.");
-        patch.selling_price = sellingPrice;
-      }
-      if (Object.keys(patch).length === 0) {
-        throw new Error("The proposal contains no applicable changes.");
-      }
-
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .update(patch)
-        .eq("id", itemId)
-        .select("id")
-        .maybeSingle();
-      if (error || !data) throw new Error(error?.message ?? "Could not update the item.");
-      return data.id;
-    }
-
-    default: {
-      const exhaustive: never = request.action_type;
-      throw new Error(`Unsupported action ${String(exhaustive)}.`);
-    }
   }
 }
 
@@ -208,14 +55,36 @@ async function guardAgainstStaleSupplierData(
   if (!request.supplier || !isSupplierId(request.supplier)) return null;
   if (!isSupplierDataStale(request.supplier_checked_at)) return null;
 
-  const lookupNumber = request.proposed_part_number ?? request.source_part_number;
+  // A replacement proposal stores the *new* number as proposed, but the
+  // supersession relationship must be revalidated by looking up the old one.
+  const lookupNumber =
+    request.action_type === "replace_superseded_part"
+      ? request.source_part_number
+      : request.proposed_part_number ?? request.source_part_number;
   if (!lookupNumber) return null;
 
-  const markStale = async (summary: string, currentValues: Record<string, unknown>, detail: Record<string, unknown>) => {
+  const markStale = async ({
+    summary,
+    currentValues,
+    proposedChanges,
+    proposedPartNumber,
+    supplierCheckedAt,
+    detail,
+  }: {
+    summary: string;
+    currentValues: Record<string, unknown>;
+    proposedChanges: Record<string, unknown>;
+    proposedPartNumber: string | null;
+    supplierCheckedAt: string | null;
+    detail: Record<string, unknown>;
+  }) => {
     await supabase.rpc("mark_change_approval_stale", {
       p_request_id: request.id,
       p_summary: summary.slice(0, 300),
       p_current_values: currentValues,
+      p_proposed_changes: proposedChanges,
+      p_proposed_part_number: proposedPartNumber,
+      p_supplier_checked_at: supplierCheckedAt,
       p_detail: detail,
     });
     refreshApprovalViews(request);
@@ -234,25 +103,65 @@ async function guardAgainstStaleSupplierData(
     const message = isSupplierError(caught)
       ? caught.userMessage
       : "The supplier could not be reached.";
-    await markStale(
-      `Supplier data could not be re-checked before applying this change. ${message}`,
-      request.current_values,
-      { reason: "revalidation_failed" },
-    );
+    await markStale({
+      summary: `Supplier data could not be re-checked before applying this change. ${message}`,
+      currentValues: request.current_values,
+      proposedChanges: request.proposed_changes,
+      proposedPartNumber: request.proposed_part_number,
+      supplierCheckedAt: null,
+      detail: { reason: "revalidation_failed" },
+    });
     return "The supplier data could not be re-checked, so this change needs approving again.";
   }
 
   if (!fresh) {
-    await markStale(
-      "The supplier no longer lists this part, so the approved change was not applied.",
-      request.current_values,
-      { reason: "part_no_longer_listed" },
-    );
+    await markStale({
+      summary: "The supplier no longer lists this part, so the approved change was not applied.",
+      currentValues: request.current_values,
+      proposedChanges: request.proposed_changes,
+      proposedPartNumber: request.proposed_part_number,
+      supplierCheckedAt: null,
+      detail: { reason: "part_no_longer_listed" },
+    });
     return "The supplier no longer lists this part. The change needs approving again.";
   }
 
+  if (request.action_type === "replace_superseded_part" && !fresh.supersededBy) {
+    await markStale({
+      summary: "The supplier no longer reports a replacement for this part.",
+      currentValues: { ...request.current_values, supersededBy: null },
+      proposedChanges: request.proposed_changes,
+      proposedPartNumber: request.proposed_part_number,
+      // Keep forcing a re-check: the obsolete replacement must never become
+      // executable merely because somebody approves this warning again.
+      supplierCheckedAt: null,
+      detail: { reason: "supersession_no_longer_reported" },
+    });
+    return "The supplier no longer reports that replacement. The change was not applied.";
+  }
+
+  if (
+    ("unit_cost" in request.proposed_changes || "average_cost" in request.proposed_changes) &&
+    fresh.dealerCost === null
+  ) {
+    await markStale({
+      summary: "The supplier no longer publishes a dealer cost for this part.",
+      currentValues: { ...request.current_values, dealerCost: null },
+      proposedChanges: request.proposed_changes,
+      proposedPartNumber: request.proposed_part_number,
+      supplierCheckedAt: null,
+      detail: { reason: "dealer_cost_no_longer_published" },
+    });
+    return "The supplier no longer publishes a dealer cost. The change was not applied.";
+  }
+
   const drift = detectSupplierDrift(request, {
-    partNumber: fresh.partNumber,
+    // For a supersession proposal, the approved part number is the replacement
+    // named by the old part's detail record, not the old detail record itself.
+    partNumber:
+      request.action_type === "replace_superseded_part" && fresh.supersededBy
+        ? fresh.supersededBy
+        : fresh.partNumber,
     dealerCost: fresh.dealerCost,
     currency: fresh.currency,
     supersededBy: fresh.supersededBy,
@@ -260,17 +169,37 @@ async function guardAgainstStaleSupplierData(
   });
 
   if (drift.length > 0) {
-    await markStale(
-      `Supplier data changed since approval: ${describeDrift(drift)}.`,
-      {
+    const proposedChanges = { ...request.proposed_changes };
+    if ("unit_cost" in proposedChanges && fresh.dealerCost !== null) {
+      proposedChanges.unit_cost = fresh.dealerCost;
+    }
+    if ("average_cost" in proposedChanges && fresh.dealerCost !== null) {
+      proposedChanges.average_cost = fresh.dealerCost;
+    }
+    if (request.action_type === "replace_superseded_part" && fresh.supersededBy) {
+      proposedChanges.part_number = fresh.supersededBy;
+    } else if (request.action_type === "add_work_order_material") {
+      proposedChanges.part_number = fresh.partNumber;
+    }
+    const proposedPartNumber =
+      typeof proposedChanges.part_number === "string"
+        ? proposedChanges.part_number
+        : request.proposed_part_number;
+
+    await markStale({
+      summary: `Supplier data changed since approval: ${describeDrift(drift)}.`,
+      currentValues: {
         ...request.current_values,
         dealerCost: fresh.dealerCost,
         currency: fresh.currency,
         supersededBy: fresh.supersededBy,
         stockStatus: fresh.stockStatus,
       },
-      { reason: "supplier_data_changed", drift },
-    );
+      proposedChanges,
+      proposedPartNumber,
+      supplierCheckedAt: fresh.checkedAt,
+      detail: { reason: "supplier_data_changed", drift },
+    });
     return `The supplier data changed since approval (${describeDrift(drift)}). Please review and approve again.`;
   }
 
@@ -298,17 +227,24 @@ async function executeApprovedRequest(
     return { status: "error", message: staleMessage };
   }
 
-  // The single claim that makes execution happen at most once.
-  const { data: claimData, error: claimError } = await supabase.rpc(
-    "begin_change_approval_execution",
+  // Claim and apply the CRM mutation inside one database transaction. A crash
+  // can no longer leave the business row changed while the request is stuck in
+  // `executing` (or vice versa).
+  const { data: executionData, error: executionError } = await supabase.rpc(
+    "execute_change_approval_crm",
     { p_request_id: requestId },
   );
-  if (claimError) {
-    return { status: "error", message: claimError.message };
+  if (executionError) {
+    await supabase.rpc("fail_change_approval_execution", {
+      p_request_id: requestId,
+      p_error: executionError.message,
+    });
+    refreshApprovalViews(request);
+    return { status: "error", message: executionError.message };
   }
-  const claim = claimData as RpcResult;
-  if (!claim?.ok) {
-    if (claim?.code === "not_executable") {
+  const execution = executionData as RpcResult;
+  if (!execution?.ok) {
+    if (execution?.code === "not_executable") {
       return {
         status: "error",
         message: "This request has already been applied or is no longer approved.",
@@ -318,10 +254,7 @@ async function executeApprovedRequest(
   }
 
   try {
-    const resultId = await applyChange(supabase, request, actorId);
-
-    // The CRM change has landed. Only now do we tell the accounting system, and
-    // we record exactly what it answered rather than assuming success.
+    const resultId = execution.resultEntityId ?? null;
     const sync = await getXeroSyncAdapter().sync({
       approvalRequestId: request.id,
       actionType: request.action_type,
@@ -329,12 +262,22 @@ async function executeApprovedRequest(
       idempotencyKey: request.idempotency_key,
     });
 
-    await supabase.rpc("complete_change_approval_execution", {
-      p_request_id: requestId,
-      p_result_entity_id: resultId,
-      p_sync_status: sync.status,
-      p_sync_error: sync.error,
-    });
+    const { data: syncRecordData, error: syncRecordError } = await supabase.rpc(
+      "record_external_sync_result",
+      {
+        p_request_id: requestId,
+        p_status: sync.status,
+        p_error: sync.error,
+      },
+    );
+    const syncRecord = syncRecordData as RpcResult;
+    if (syncRecordError || !syncRecord?.ok) {
+      refreshApprovalViews(request);
+      return {
+        status: "error",
+        message: "The CRM change was applied, but its accounting status could not be recorded.",
+      };
+    }
 
     logApproval({
       approvalRequestId: requestId,
@@ -342,7 +285,7 @@ async function executeApprovedRequest(
       status: "executed",
       actorId,
       entityType: request.entity_type,
-      entityId: resultId,
+      entityId: resultId ?? undefined,
     });
     refreshApprovalViews(request);
 
@@ -353,23 +296,47 @@ async function executeApprovedRequest(
           "The change was applied in Coastal CRM, but the accounting sync failed. See the request for details.",
       };
     }
+    if (sync.status === "pending") {
+      return {
+        status: "success",
+        message: "Approved and applied. The accounting sync is still pending.",
+      };
+    }
     return { status: "success", message: "Approved and applied." };
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "The change could not be applied.";
-    await supabase.rpc("fail_change_approval_execution", {
+    await supabase.rpc("record_external_sync_result", {
       p_request_id: requestId,
+      p_status: "failed",
       p_error: message,
     });
     logApproval({
       approvalRequestId: requestId,
       action: request.action_type,
-      status: "execution_failed",
+      status: "external_sync_failed",
       actorId,
       detail: message,
     });
     refreshApprovalViews(request);
-    return { status: "error", message };
+    return {
+      status: "error",
+      message: `The CRM change was applied, but the accounting sync failed. ${message}`,
+    };
   }
+}
+
+/** Resume an approval that was decided before the request process was interrupted. */
+export async function executeApprovedRequestAction(
+  requestId: string,
+): Promise<ApprovalActionState> {
+  const { user, profile } = await requireUser();
+  if (!UUID_RE.test(requestId)) {
+    return { status: "error", message: "Invalid request reference." };
+  }
+  if (!canApproveSupplierChange(profile.role)) {
+    return { status: "error", message: "Your role cannot execute supplier changes." };
+  }
+  return executeApprovedRequest(await createClient(), requestId, user.id);
 }
 
 /**
@@ -444,15 +411,21 @@ export async function decideApprovalAction(
 export async function retryExternalSyncAction(
   requestId: string,
 ): Promise<ApprovalActionState> {
-  const { user } = await requireUser();
+  const { user, profile } = await requireUser();
   if (!UUID_RE.test(requestId)) {
     return { status: "error", message: "Invalid request reference." };
+  }
+  if (!canApproveSupplierChange(profile.role)) {
+    return { status: "error", message: "Your role cannot retry accounting syncs." };
   }
 
   const request = await getApprovalRequest(requestId);
   if (!request) return { status: "error", message: "This request no longer exists." };
-  if (request.status !== "executed" || request.external_sync_status !== "failed") {
-    return { status: "error", message: "There is no failed sync to retry." };
+  if (
+    request.status !== "executed" ||
+    !["pending", "failed"].includes(request.external_sync_status)
+  ) {
+    return { status: "error", message: "There is no pending or failed sync to retry." };
   }
 
   const supabase = await createClient();
@@ -463,12 +436,18 @@ export async function retryExternalSyncAction(
     idempotencyKey: request.idempotency_key,
   });
 
-  const { error } = await supabase.rpc("record_external_sync_result", {
+  const { data, error } = await supabase.rpc("record_external_sync_result", {
     p_request_id: requestId,
     p_status: sync.status,
     p_error: sync.error,
   });
-  if (error) return { status: "error", message: error.message };
+  const recorded = data as RpcResult;
+  if (error || !recorded?.ok) {
+    return {
+      status: "error",
+      message: error?.message ?? "The accounting status could not be recorded.",
+    };
+  }
 
   logApproval({
     approvalRequestId: requestId,
@@ -486,6 +465,9 @@ export async function retryExternalSyncAction(
       status: "success",
       message: "Xero is not connected, so this change needs no sync.",
     };
+  }
+  if (sync.status === "pending") {
+    return { status: "success", message: "The accounting sync is still pending." };
   }
   return { status: "success", message: "Synced to Xero." };
 }

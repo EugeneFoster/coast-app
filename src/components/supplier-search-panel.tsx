@@ -3,6 +3,7 @@
 import { useCallback, useState, useTransition } from "react";
 import { proposeSupplierChangeAction } from "@/lib/actions/suppliers";
 import { formatCad, formatCheckedAt } from "@/lib/approvals";
+import { partNumbersMatch } from "@/lib/suppliers/normalize";
 import {
   SUPPLIER_IDS,
   SUPPLIER_LABELS,
@@ -17,6 +18,13 @@ type PanelState =
   | { phase: "searching" }
   | { phase: "done"; outcome: SupplierSearchOutcome }
   | { phase: "error"; message: string };
+
+interface ExistingMaterial {
+  id: string;
+  description: string;
+  partNumber: string;
+  unitCost: number;
+}
 
 const STOCK_LABELS: Record<StockStatus, string> = {
   in_stock: "In stock",
@@ -48,11 +56,18 @@ function money(value: number | null, currency: string | null) {
   return currency && currency !== "CAD" ? `${formatted} ${currency}` : formatted;
 }
 
-export function SupplierSearchPanel({ workOrderId }: { workOrderId: string }) {
+export function SupplierSearchPanel({
+  workOrderId,
+  existingMaterials,
+}: {
+  workOrderId: string;
+  existingMaterials: ExistingMaterial[];
+}) {
   const [query, setQuery] = useState("");
   const [states, setStates] = useState<Record<SupplierId, PanelState>>(initialStates);
   const [searched, setSearched] = useState<string | null>(null);
   const [proposal, setProposal] = useState<{ status: string; message: string } | null>(null);
+  const [selectedMaterialId, setSelectedMaterialId] = useState("");
   const [isProposing, startProposing] = useTransition();
 
   const runSearch = useCallback(async (raw: string) => {
@@ -61,6 +76,10 @@ export function SupplierSearchPanel({ workOrderId }: { workOrderId: string }) {
 
     setSearched(trimmed);
     setProposal(null);
+    const matchingMaterial = existingMaterials.find((entry) =>
+      partNumbersMatch(entry.partNumber, trimmed),
+    );
+    setSelectedMaterialId(matchingMaterial?.id ?? "");
     setStates(
       Object.fromEntries(SUPPLIER_IDS.map((id) => [id, { phase: "searching" }])) as Record<
         SupplierId,
@@ -102,15 +121,23 @@ export function SupplierSearchPanel({ workOrderId }: { workOrderId: string }) {
         }
       }),
     );
-  }, []);
+  }, [existingMaterials]);
 
-  const propose = (result: SupplierPartResult) => {
+  const propose = (
+    result: SupplierPartResult,
+    actionType:
+      | "add_work_order_material"
+      | "update_work_order_material_cost"
+      | "replace_superseded_part",
+  ) => {
     startProposing(async () => {
       const state = await proposeSupplierChangeAction({
-        actionType: "add_work_order_material",
+        actionType,
         supplier: result.supplier,
         partNumber: result.partNumber,
         workOrderId,
+        materialEntryId:
+          actionType === "add_work_order_material" ? undefined : selectedMaterialId,
         quantity: 1,
       });
       setProposal(state);
@@ -123,7 +150,8 @@ export function SupplierSearchPanel({ workOrderId }: { workOrderId: string }) {
         <h3 className="font-display text-lg font-medium text-ink">Search suppliers</h3>
         <p className="mt-1 text-sm text-graph">
           Looks up pricing and availability at Mercury, Marine Parts Supply and Western Marine.
-          Searching changes nothing — adding a part raises a request for approval first.
+          Searching changes nothing — adding, repricing, or replacing a part raises a request
+          for approval first.
         </p>
       </header>
 
@@ -146,6 +174,24 @@ export function SupplierSearchPanel({ workOrderId }: { workOrderId: string }) {
           Search suppliers
         </button>
       </form>
+
+      {existingMaterials.length > 0 && (
+        <label className="mt-3 block text-sm text-graph">
+          Existing material line for price or supersession proposals
+          <select
+            value={selectedMaterialId}
+            onChange={(event) => setSelectedMaterialId(event.target.value)}
+            className="mt-1 block w-full rounded border border-rule bg-paper px-3 py-2 text-sm text-ink focus:border-weld focus:outline-none"
+          >
+            <option value="">None — add as a new line</option>
+            {existingMaterials.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.partNumber} · {entry.description} · {formatCad(entry.unitCost)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {searched && (
         <div className="mt-4 space-y-3">
@@ -259,11 +305,45 @@ export function SupplierSearchPanel({ workOrderId }: { workOrderId: string }) {
                         <button
                           type="button"
                           disabled={isProposing}
-                          onClick={() => propose(result)}
+                          onClick={() => propose(result, "add_work_order_material")}
                           className="btn-primary px-3 py-1.5 text-sm disabled:opacity-60"
                         >
                           {isProposing ? "Sending…" : "Request to add"}
                         </button>
+                        {selectedMaterialId &&
+                          existingMaterials.some(
+                            (entry) =>
+                              entry.id === selectedMaterialId &&
+                              partNumbersMatch(entry.partNumber, result.partNumber),
+                          ) &&
+                          result.dealerCost !== null && (
+                            <button
+                              type="button"
+                              disabled={isProposing}
+                              onClick={() =>
+                                propose(result, "update_work_order_material_cost")
+                              }
+                              className="btn-secondary px-3 py-1.5 text-sm disabled:opacity-60"
+                            >
+                              Request cost update
+                            </button>
+                          )}
+                        {selectedMaterialId &&
+                          existingMaterials.some(
+                            (entry) =>
+                              entry.id === selectedMaterialId &&
+                              partNumbersMatch(entry.partNumber, result.partNumber),
+                          ) &&
+                          result.supersededBy && (
+                            <button
+                              type="button"
+                              disabled={isProposing}
+                              onClick={() => propose(result, "replace_superseded_part")}
+                              className="btn-secondary px-3 py-1.5 text-sm disabled:opacity-60"
+                            >
+                              Request replacement
+                            </button>
+                          )}
                         {result.productUrl && (
                           <a
                             href={result.productUrl}

@@ -244,6 +244,39 @@ export class MarinePartsSupplyAdapter extends BaseSupplierAdapter {
     });
   }
 
+  /** Fetch the authoritative row, including substitutes and cross-references. */
+  private async fetchDetail(
+    session: SupplierSession,
+    partCode: string,
+    signal?: AbortSignal,
+  ): Promise<SupplierPartResult | null> {
+    const { baseUrl } = this.requireCredentials();
+    const response = await supplierFetch(
+      this.id,
+      this.url(`/api/inventory/parts/${encodeURIComponent(partCode)}`),
+      { headers: this.authHeaders(session), signal },
+    );
+
+    if (response.status === 401) {
+      throw new SupplierError(this.id, "SESSION_EXPIRED", "detail rejected the bearer token");
+    }
+    if (response.status === 403) {
+      throw new SupplierError(this.id, "AUTH_FAILED", "account lacks catalogue access");
+    }
+    if (response.status === 404) return null;
+    if (response.status === 429) {
+      throw new SupplierError(this.id, "RATE_LIMITED", "detail rate limited");
+    }
+    if (!response.ok) {
+      throw new SupplierError(this.id, "SUPPLIER_UNAVAILABLE", `detail status ${response.status}`);
+    }
+    if (!response.json || typeof response.json !== "object") {
+      throw new SupplierError(this.id, "PARSING_FAILED", "detail response was not an object");
+    }
+
+    return this.toResult(response.json as MpsPart, partCode, baseUrl);
+  }
+
   protected async performSearch(
     session: SupplierSession,
     normalizedPartNumber: string,
@@ -281,52 +314,51 @@ export class MarinePartsSupplyAdapter extends BaseSupplierAdapter {
       throw new SupplierError(this.id, "PARSING_FAILED", "search response had no results array");
     }
 
-    return payload.results
+    const results = payload.results
       .map((row) => this.toResult(row as MpsPart, normalizedPartNumber, baseUrl))
       .filter((result): result is SupplierPartResult => result !== null);
+
+    // Search rows omit `substitutes`. Enrich only the exact match so the normal
+    // work-order search can surface the replacement without issuing a detail
+    // request for every related suggestion.
+    const exactIndex = results.findIndex(
+      (result) => normalizePartNumber(result.partNumber) === normalizedPartNumber,
+    );
+    if (exactIndex !== -1) {
+      const detail = await this.fetchDetail(session, results[exactIndex].partNumber, signal);
+      if (detail) {
+        // Preserve availability fields that exist only on the search row while
+        // copying the relationships that exist only on detail.
+        results[exactIndex] = {
+          ...results[exactIndex],
+          supersededBy: detail.supersededBy,
+          replaces: detail.replaces,
+          matchType: detail.matchType,
+          exactMatch: detail.exactMatch,
+          imageUrl: detail.imageUrl ?? results[exactIndex].imageUrl,
+          checkedAt: detail.checkedAt,
+        };
+      }
+    }
+
+    return results;
   }
 
   /**
    * The detail endpoint is the only place substitutes and cross-references are
-   * returned, so supersession is resolved here rather than from the search row.
+   * returned. Search enriches its exact row from the same helper, while this
+   * method exposes the authoritative detail lookup directly.
    */
   override async getPartDetails(
     normalizedPartNumber: string,
     signal?: AbortSignal,
   ): Promise<SupplierPartResult | null> {
     this.assertReady();
-    const { baseUrl } = this.requireCredentials();
     const partCode = normalizePartNumber(normalizedPartNumber);
 
     return this.sessions.run(
       (s) => this.login(s),
-      async (session) => {
-        const response = await supplierFetch(
-          this.id,
-          this.url(`/api/inventory/parts/${encodeURIComponent(partCode)}`),
-          { headers: this.authHeaders(session), signal },
-        );
-
-        if (response.status === 401) {
-          throw new SupplierError(this.id, "SESSION_EXPIRED", "detail rejected the bearer token");
-        }
-        if (response.status === 404) return null;
-        if (response.status === 429) {
-          throw new SupplierError(this.id, "RATE_LIMITED", "detail rate limited");
-        }
-        if (!response.ok) {
-          throw new SupplierError(
-            this.id,
-            "SUPPLIER_UNAVAILABLE",
-            `detail status ${response.status}`,
-          );
-        }
-        if (!response.json || typeof response.json !== "object") {
-          throw new SupplierError(this.id, "PARSING_FAILED", "detail response was not an object");
-        }
-
-        return this.toResult(response.json as MpsPart, partCode, baseUrl);
-      },
+      (session) => this.fetchDetail(session, partCode, signal),
       signal,
     );
   }

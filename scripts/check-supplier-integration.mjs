@@ -35,7 +35,7 @@ const {
 } = await import("@/lib/suppliers/normalize.ts");
 const { SupplierError } = await import("@/lib/suppliers/errors.ts");
 const { CookieJar, SupplierSessionManager } = await import("@/lib/suppliers/session.ts");
-const { resolveAgainstBase } = await import("@/lib/suppliers/http.ts");
+const { resolveAgainstBase, supplierFetch } = await import("@/lib/suppliers/http.ts");
 const { searchSuppliers } = await import("@/lib/suppliers/search.ts");
 const { invalidateSupplierCache } = await import("@/lib/suppliers/cache.ts");
 const { getSupplierRegistry } = await import("@/lib/suppliers/registry.ts");
@@ -336,6 +336,36 @@ assert.throws(
   "a supplier URL can never be pointed at another origin",
 );
 
+// Redirects are part of the authenticated HTTP flow, so they must stay on the
+// configured origin as well. Otherwise a portal/open-redirect could receive a
+// bearer token or Basic credentials on the second hop.
+{
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), authorization: init.headers?.authorization });
+    return new Response("", {
+      status: 302,
+      headers: { location: "https://redirect-target.example/capture" },
+    });
+  };
+  try {
+    await assert.rejects(
+      () =>
+        supplierFetch("marinepartssupply", "https://supplier.example/search", {
+          headers: { authorization: "Bearer test-session-token" },
+        }),
+      (error) =>
+        error instanceof SupplierError &&
+        error.code === "SUPPLIER_UNAVAILABLE" &&
+        error.internalDetail === "refused a cross-origin supplier redirect",
+    );
+    assert.equal(calls.length, 1, "authorization is never replayed to another origin");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Configuration and secrecy
 // ---------------------------------------------------------------------------
@@ -497,7 +527,13 @@ try {
   const row = rows[0];
 
   assert.equal(row.partNumber, "18-2001");
-  assert.equal(row.exactMatch, true);
+  assert.equal(row.exactMatch, false, "a superseded result is not presented as exact");
+  assert.equal(row.matchType, "superseded");
+  assert.equal(
+    row.supersededBy,
+    "BRP330137",
+    "ordinary search enriches the exact row with its replacement number",
+  );
   assert.equal(row.description, "Oil Seal");
   assert.equal(row.manufacturer, "Sierra");
   assert.equal(row.dealerCost, 15.2, "current_price is the account price");
@@ -542,7 +578,13 @@ try {
     "one login serves the search",
   );
 
-  // Supersession comes from the detail endpoint.
+  const enrichedDetailCall = requestLog.find((entry) =>
+    entry.href.includes("/api/inventory/parts/18-2001"),
+  );
+  assert.ok(enrichedDetailCall, "search fetched exact-match detail for supersession data");
+  assert.equal(enrichedDetailCall.init.headers.authorization, "Bearer test-token");
+
+  // The explicit detail API returns the same authoritative relationship.
   const detail = await mps.getPartDetails("18-2001");
   assert.equal(detail.supersededBy, "BRP330137", "substitutes carry the replacement number");
   assert.equal(detail.matchType, "superseded", "a replacement is never an exact match");

@@ -12,7 +12,11 @@ import {
   formatCheckedAt,
   isDecidable,
 } from "@/lib/approvals";
-import { decideApprovalAction, retryExternalSyncAction } from "@/lib/actions/approvals";
+import {
+  decideApprovalAction,
+  executeApprovedRequestAction,
+  retryExternalSyncAction,
+} from "@/lib/actions/approvals";
 import type { ChangeApprovalRequest, ChangeApprovalStatus } from "@/lib/types";
 
 const STATUS_STYLES: Record<ChangeApprovalStatus, string> = {
@@ -68,6 +72,9 @@ export function ApprovalCard({
     approveState.message ? approveState : rejectState.message ? rejectState : null;
 
   const costDelta = diff.find((row) => row.delta !== null && row.delta !== 0)?.delta ?? null;
+  const syncNeedsAttention =
+    request.status === "executed" &&
+    (request.external_sync_status === "pending" || request.external_sync_status === "failed");
 
   return (
     <article className="rounded border border-rule bg-paper p-4">
@@ -178,10 +185,11 @@ export function ApprovalCard({
         </p>
       )}
 
-      {request.status === "executed" && request.external_sync_status === "failed" && (
+      {syncNeedsAttention && (
         <div className="mt-3 rounded border border-weld/40 bg-weld/5 p-3">
           <p className="text-sm text-ink">
-            The change was applied in Coastal CRM, but the sync to Xero failed.
+            The change was applied in Coastal CRM, but its Xero sync is{" "}
+            {request.external_sync_status === "failed" ? "failed" : "still pending"}.
             {request.external_sync_error ? ` ${request.external_sync_error}` : ""}
           </p>
           {canDecide && (
@@ -199,6 +207,32 @@ export function ApprovalCard({
               {syncing ? "Retrying…" : "Retry sync"}
             </button>
           )}
+          {syncState && (
+            <p
+              className={`mt-2 text-sm ${syncState.status === "error" ? "text-weld" : "text-graph"}`}
+              aria-live="polite"
+            >
+              {syncState.message}
+            </p>
+          )}
+        </div>
+      )}
+
+      {canDecide && request.status === "approved" && (
+        <div className="mt-4 border-t border-rule pt-4">
+          <button
+            type="button"
+            disabled={syncing}
+            onClick={async () => {
+              setSyncing(true);
+              const result = await executeApprovedRequestAction(request.id);
+              setSyncState(result);
+              setSyncing(false);
+            }}
+            className="btn-primary px-4 py-2 text-sm disabled:opacity-60"
+          >
+            {syncing ? "Applying…" : "Apply approved change"}
+          </button>
           {syncState && (
             <p
               className={`mt-2 text-sm ${syncState.status === "error" ? "text-weld" : "text-graph"}`}

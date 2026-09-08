@@ -459,6 +459,239 @@ $$;
 -- Execution lifecycle
 -- ---------------------------------------------------------------------------
 
+-- Claim and apply the CRM mutation in one transaction. The earlier two-step
+-- begin/apply/complete flow could leave a request stuck in `executing` after the
+-- business row had already changed. This function makes the database row and
+-- approval lifecycle one atomic unit; external accounting sync happens after
+-- commit and is tracked independently with an idempotency key.
+create or replace function public.execute_change_approval_crm(p_request_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor       uuid := auth.uid();
+  v_request     public.change_approval_requests%rowtype;
+  v_result_id   uuid;
+  v_description text;
+  v_part_number text;
+  v_unit        text;
+  v_quantity    numeric;
+  v_unit_cost   numeric;
+  v_average_cost numeric;
+  v_selling_price numeric;
+  v_inventory_movement_id uuid;
+  v_sync_status text;
+begin
+  if v_actor is null then
+    raise exception 'Authentication required.' using errcode = '28000';
+  end if;
+  if not public.can_approve_supplier_change() then
+    raise exception 'Your role cannot execute supplier changes.' using errcode = '42501';
+  end if;
+
+  select * into v_request
+  from public.change_approval_requests
+  where id = p_request_id
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'code', 'not_found');
+  end if;
+  if v_request.status <> 'approved' then
+    return jsonb_build_object(
+      'ok', false, 'code', 'not_executable', 'status', v_request.status
+    );
+  end if;
+
+  update public.change_approval_requests
+    set status = 'executing', executing_at = now(), updated_at = now()
+    where id = p_request_id;
+  insert into public.change_approval_events (request_id, event_type, actor_id)
+  values (p_request_id, 'execution_started', v_actor);
+
+  case v_request.action_type
+    when 'add_work_order_material' then
+      if v_request.parent_entity_id is null
+         or not exists (
+           select 1 from public.work_orders where id = v_request.parent_entity_id
+         ) then
+        raise exception 'The proposal has no valid work order.' using errcode = '23503';
+      end if;
+
+      v_description := nullif(btrim(v_request.proposed_changes->>'description'), '');
+      v_part_number := nullif(btrim(v_request.proposed_changes->>'part_number'), '');
+      v_unit := coalesce(nullif(btrim(v_request.proposed_changes->>'unit'), ''), 'ea');
+      v_quantity := (v_request.proposed_changes->>'quantity')::numeric;
+      v_unit_cost := coalesce((v_request.proposed_changes->>'unit_cost')::numeric, 0);
+      if v_description is null
+         or v_quantity is null or v_quantity <= 0
+         or v_unit_cost is null or v_unit_cost < 0 then
+        raise exception 'The proposed material values are invalid.' using errcode = '22023';
+      end if;
+
+      insert into public.material_entries (
+        work_order_id, description, part_number, quantity, unit, unit_cost, entered_by
+      ) values (
+        v_request.parent_entity_id,
+        left(v_description, 500),
+        left(v_part_number, 100),
+        v_quantity,
+        left(v_unit, 20),
+        v_unit_cost,
+        v_actor
+      ) returning id into v_result_id;
+
+    when 'update_work_order_material_cost' then
+      if v_request.entity_id is null then
+        raise exception 'The proposal has no material line.' using errcode = '22023';
+      end if;
+      select inventory_movement_id into v_inventory_movement_id
+      from public.material_entries
+      where id = v_request.entity_id
+      for update;
+      if not found then
+        raise exception 'The material line no longer exists.' using errcode = 'P0002';
+      end if;
+      if v_inventory_movement_id is not null then
+        raise exception 'Warehouse-issued lines must be changed through inventory.' using errcode = '22023';
+      end if;
+      if not (v_request.proposed_changes ? 'unit_cost') then
+        raise exception 'The proposal has no cost.' using errcode = '22023';
+      end if;
+      v_unit_cost := (v_request.proposed_changes->>'unit_cost')::numeric;
+      if v_unit_cost is null or v_unit_cost < 0 then
+        raise exception 'The proposal has an invalid cost.' using errcode = '22023';
+      end if;
+
+      update public.material_entries
+      set unit_cost = v_unit_cost
+      where id = v_request.entity_id
+      returning id into v_result_id;
+
+    when 'replace_superseded_part' then
+      if v_request.entity_id is null then
+        raise exception 'The proposal has no material line.' using errcode = '22023';
+      end if;
+      select inventory_movement_id into v_inventory_movement_id
+      from public.material_entries
+      where id = v_request.entity_id
+      for update;
+      if not found then
+        raise exception 'The material line no longer exists.' using errcode = 'P0002';
+      end if;
+      if v_inventory_movement_id is not null then
+        raise exception 'Warehouse-issued lines must be changed through inventory.' using errcode = '22023';
+      end if;
+      v_part_number := nullif(btrim(v_request.proposed_changes->>'part_number'), '');
+      if v_part_number is null then
+        raise exception 'The proposal has no replacement part number.' using errcode = '22023';
+      end if;
+
+      -- Supplier detail describes and prices the old part. Even if an older
+      -- pending request contains those fields, replacement changes only the
+      -- explicitly approved part number.
+      update public.material_entries
+      set part_number = left(v_part_number, 100)
+      where id = v_request.entity_id
+      returning id into v_result_id;
+
+    when 'remove_work_order_material' then
+      if v_request.entity_id is null then
+        raise exception 'The proposal has no material line.' using errcode = '22023';
+      end if;
+      select inventory_movement_id into v_inventory_movement_id
+      from public.material_entries
+      where id = v_request.entity_id
+      for update;
+      if not found then
+        raise exception 'The material line no longer exists.' using errcode = 'P0002';
+      end if;
+      if v_inventory_movement_id is not null then
+        raise exception 'Warehouse issues must be reversed through inventory.' using errcode = '22023';
+      end if;
+      delete from public.material_entries
+      where id = v_request.entity_id
+      returning id into v_result_id;
+
+    when 'update_inventory_item_cost' then
+      if v_request.entity_id is null then
+        raise exception 'The proposal has no inventory item.' using errcode = '22023';
+      end if;
+      if not (
+        v_request.proposed_changes ? 'average_cost'
+        or v_request.proposed_changes ? 'selling_price'
+      ) then
+        raise exception 'The proposal contains no applicable changes.' using errcode = '22023';
+      end if;
+      if v_request.proposed_changes ? 'average_cost' then
+        v_average_cost := (v_request.proposed_changes->>'average_cost')::numeric;
+        if v_average_cost is null or v_average_cost < 0 then
+          raise exception 'The proposal has a negative cost.' using errcode = '22023';
+        end if;
+      end if;
+      if v_request.proposed_changes ? 'selling_price' then
+        v_selling_price := (v_request.proposed_changes->>'selling_price')::numeric;
+        if v_selling_price is null or v_selling_price < 0 then
+          raise exception 'The proposal has a negative price.' using errcode = '22023';
+        end if;
+      end if;
+
+      update public.inventory_items
+      set average_cost = case
+            when v_request.proposed_changes ? 'average_cost' then v_average_cost
+            else average_cost
+          end,
+          selling_price = case
+            when v_request.proposed_changes ? 'selling_price' then v_selling_price
+            else selling_price
+          end
+      where id = v_request.entity_id
+      returning id into v_result_id;
+      if v_result_id is null then
+        raise exception 'The inventory item no longer exists.' using errcode = 'P0002';
+      end if;
+
+    else
+      raise exception 'Unsupported approval action.' using errcode = '22023';
+  end case;
+
+  v_sync_status := case
+    when v_request.xero_impact in ('none', 'not_configured') then 'not_required'
+    else 'pending'
+  end;
+
+  update public.change_approval_requests
+  set status = 'executed',
+      executed_at = now(),
+      execution_status = 'succeeded',
+      execution_error = null,
+      result_entity_id = v_result_id,
+      entity_id = coalesce(entity_id, v_result_id),
+      external_sync_status = v_sync_status,
+      external_sync_error = null,
+      external_sync_at = null,
+      updated_at = now()
+  where id = p_request_id;
+
+  insert into public.change_approval_events (request_id, event_type, actor_id, detail)
+  values (
+    p_request_id,
+    'executed',
+    v_actor,
+    jsonb_build_object('resultEntityId', v_result_id, 'syncStatus', v_sync_status)
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'code', 'executed',
+    'status', 'executed',
+    'resultEntityId', v_result_id
+  );
+end;
+$$;
+
 -- Claim an approved request for execution. This is the single point that makes
 -- execution happen at most once: the compare-and-set from 'approved' to
 -- 'executing' succeeds for exactly one caller, so a double-clicked Approve
@@ -524,6 +757,9 @@ declare
 begin
   if v_actor is null then
     raise exception 'Authentication required.' using errcode = '28000';
+  end if;
+  if not public.can_approve_supplier_change() then
+    raise exception 'Your role cannot complete supplier changes.' using errcode = '42501';
   end if;
   if p_sync_status not in ('not_required', 'pending', 'synced', 'failed') then
     raise exception 'Invalid sync status.' using errcode = '22023';
@@ -596,6 +832,9 @@ begin
   if v_actor is null then
     raise exception 'Authentication required.' using errcode = '28000';
   end if;
+  if not public.can_approve_supplier_change() then
+    raise exception 'Your role cannot fail supplier changes.' using errcode = '42501';
+  end if;
 
   update public.change_approval_requests
     set status = 'failed',
@@ -603,7 +842,7 @@ begin
         execution_error = left(coalesce(p_error, 'Execution failed.'), 1000),
         updated_at = now()
     where id = p_request_id
-      and status = 'executing'
+      and status in ('approved', 'executing')
     returning id into v_updated;
 
   if v_updated is null then
@@ -619,11 +858,18 @@ $$;
 
 -- Supplier pricing moved between approval and execution: send it back for a
 -- fresh decision instead of applying a number the approver never saw.
+-- Drop the legacy four-argument overload so an upgraded database does not keep
+-- an independently callable stale-marking function with the old semantics.
+drop function if exists public.mark_change_approval_stale(uuid, text, jsonb, jsonb);
+
 create or replace function public.mark_change_approval_stale(
-  p_request_id     uuid,
-  p_summary        text,
-  p_current_values jsonb,
-  p_detail         jsonb default '{}'::jsonb
+  p_request_id          uuid,
+  p_summary             text,
+  p_current_values      jsonb,
+  p_proposed_changes    jsonb,
+  p_proposed_part_number text,
+  p_supplier_checked_at timestamptz,
+  p_detail              jsonb default '{}'::jsonb
 )
 returns jsonb
 language plpgsql
@@ -636,6 +882,9 @@ declare
 begin
   if v_actor is null then
     raise exception 'Authentication required.' using errcode = '28000';
+  end if;
+  if not public.can_approve_supplier_change() then
+    raise exception 'Your role cannot re-open supplier changes.' using errcode = '42501';
   end if;
 
   select * into v_request
@@ -654,7 +903,9 @@ begin
     set status = 'stale_requires_reapproval',
         summary = coalesce(nullif(btrim(p_summary), ''), summary),
         current_values = coalesce(p_current_values, current_values),
-        supplier_checked_at = now(),
+        proposed_changes = coalesce(p_proposed_changes, proposed_changes),
+        proposed_part_number = coalesce(p_proposed_part_number, proposed_part_number),
+        supplier_checked_at = p_supplier_checked_at,
         -- Clear the decision so the request must be decided again.
         decided_at = null,
         decided_by = null,
@@ -703,6 +954,9 @@ begin
   if v_actor is null then
     raise exception 'Authentication required.' using errcode = '28000';
   end if;
+  if not public.can_approve_supplier_change() then
+    raise exception 'Your role cannot record accounting syncs.' using errcode = '42501';
+  end if;
   if p_status not in ('not_required', 'pending', 'synced', 'failed') then
     raise exception 'Invalid sync status.' using errcode = '22023';
   end if;
@@ -710,7 +964,7 @@ begin
   update public.change_approval_requests
     set external_sync_status = p_status,
         external_sync_error = case when p_status = 'failed' then left(coalesce(p_error, ''), 1000) else null end,
-        external_sync_at = now(),
+        external_sync_at = case when p_status in ('synced', 'failed') then now() else null end,
         updated_at = now()
     where id = p_request_id
       and status = 'executed'
@@ -720,13 +974,36 @@ begin
     return jsonb_build_object('ok', false, 'code', 'not_executed');
   end if;
 
-  insert into public.change_approval_events (request_id, event_type, actor_id, detail)
-  values (
-    p_request_id,
-    case when p_status = 'failed' then 'external_sync_failed' else 'external_sync_succeeded' end,
-    v_actor,
-    jsonb_build_object('status', p_status, 'error', left(coalesce(p_error, ''), 1000))
-  );
+  if p_status in ('synced', 'failed') then
+    insert into public.change_approval_events (request_id, event_type, actor_id, detail)
+    values (
+      p_request_id,
+      case when p_status = 'failed' then 'external_sync_failed' else 'external_sync_succeeded' end,
+      v_actor,
+      jsonb_build_object('status', p_status, 'error', left(coalesce(p_error, ''), 1000))
+    );
+  end if;
+
+  if p_status = 'failed' then
+    insert into public.notifications (recipient_id, kind, title, body, approval_request_id, link_path)
+    select approver.id,
+           'sync_failed',
+           'Accounting sync failed',
+           'The change was applied in Coastal CRM but could not be synced to Xero.',
+           p_request_id,
+           '/approvals'
+    from public.profiles approver
+    where approver.status = 'active'
+      and approver.role::text in ('owner', 'project_manager')
+      and not exists (
+        select 1
+        from public.notifications existing
+        where existing.recipient_id = approver.id
+          and existing.approval_request_id = p_request_id
+          and existing.kind = 'sync_failed'
+          and existing.read_at is null
+      );
+  end if;
 
   return jsonb_build_object('ok', true, 'code', p_status);
 end;
@@ -757,15 +1034,37 @@ begin
 end;
 $$;
 
+-- SECURITY DEFINER functions receive EXECUTE from PUBLIC by default. Remove
+-- that implicit grant explicitly, then expose only the authenticated entry
+-- points used by the application. The legacy split execution helpers remain
+-- defined for a safe upgrade but are intentionally not callable by clients.
+revoke all on function public.can_propose_supplier_change() from public;
+revoke all on function public.can_approve_supplier_change() from public;
+revoke all on function public.protect_change_approval_events() from public;
+revoke all on function public.create_change_approval_request(
+  text, text, uuid, uuid, text, text, text, text, jsonb, jsonb, text, text, timestamptz, text
+) from public;
+revoke all on function public.decide_change_approval_request(uuid, text, text) from public;
+revoke all on function public.begin_change_approval_execution(uuid) from public, authenticated;
+revoke all on function public.complete_change_approval_execution(uuid, uuid, text, text) from public, authenticated;
+revoke all on function public.execute_change_approval_crm(uuid) from public;
+revoke all on function public.fail_change_approval_execution(uuid, text) from public;
+revoke all on function public.mark_change_approval_stale(
+  uuid, text, jsonb, jsonb, text, timestamptz, jsonb
+) from public;
+revoke all on function public.record_external_sync_result(uuid, text, text) from public;
+revoke all on function public.mark_notifications_read(uuid[]) from public;
+
 grant execute on function public.can_propose_supplier_change() to authenticated;
 grant execute on function public.can_approve_supplier_change() to authenticated;
 grant execute on function public.create_change_approval_request(
   text, text, uuid, uuid, text, text, text, text, jsonb, jsonb, text, text, timestamptz, text
 ) to authenticated;
 grant execute on function public.decide_change_approval_request(uuid, text, text) to authenticated;
-grant execute on function public.begin_change_approval_execution(uuid) to authenticated;
-grant execute on function public.complete_change_approval_execution(uuid, uuid, text, text) to authenticated;
+grant execute on function public.execute_change_approval_crm(uuid) to authenticated;
 grant execute on function public.fail_change_approval_execution(uuid, text) to authenticated;
-grant execute on function public.mark_change_approval_stale(uuid, text, jsonb, jsonb) to authenticated;
+grant execute on function public.mark_change_approval_stale(
+  uuid, text, jsonb, jsonb, text, timestamptz, jsonb
+) to authenticated;
 grant execute on function public.record_external_sync_result(uuid, text, text) to authenticated;
 grant execute on function public.mark_notifications_read(uuid[]) to authenticated;

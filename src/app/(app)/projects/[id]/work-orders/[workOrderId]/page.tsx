@@ -480,7 +480,20 @@ export default async function WorkOrderPage({
 
       {canSearchSuppliers && (
         <section className="mt-10">
-          <SupplierSearchPanel workOrderId={workOrderId} />
+          <SupplierSearchPanel
+            workOrderId={workOrderId}
+            existingMaterials={materialEntries
+              .filter(
+                (entry) =>
+                  !entry.inventory_movement_id && !entry.reversed_at && !!entry.part_number,
+              )
+              .map((entry) => ({
+                id: entry.id,
+                description: entry.description,
+                partNumber: entry.part_number!,
+                unitCost: Number(entry.unit_cost),
+              }))}
+          />
         </section>
       )}
 
