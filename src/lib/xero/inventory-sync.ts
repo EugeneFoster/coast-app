@@ -239,7 +239,9 @@ export async function pullInventoryFromXero(
         category,
         unit: "ea",
         selling_price: xeroItem.SalesDetails?.UnitPrice ?? null,
-        active: xeroItem.Status !== "DELETED",
+        // Xero keeps archived catalogue items in the Items endpoint. Preserve
+        // them for history, but only expose ACTIVE records as sellable stock.
+        active: xeroItem.Status ? xeroItem.Status === "ACTIVE" : true,
         ...(!existing ? { source: "xero" } : {}),
         xero_item_id: xeroItem.ItemID,
         xero_is_tracked: tracked,
