@@ -11,6 +11,7 @@ import {
   canViewSales,
   canManageOperations,
   canViewPaintYard,
+  canProposeSupplierChange,
   userRoleLabel,
 } from "@/lib/employee-roles";
 
@@ -24,6 +25,7 @@ const navItems: Array<{
   counterSalesOnly?: boolean;
   operationsManagerOnly?: boolean;
   paintYardOnly?: boolean;
+  supplierApprovalsOnly?: boolean;
 }> = [
   { href: "/projects", label: "Projects" },
   { href: "/my-day", label: "My day" },
@@ -34,6 +36,7 @@ const navItems: Array<{
   { href: "/sales", label: "Sales CRM", salesOnly: true },
   { href: "/billing", label: "Billing", billingOnly: true },
   { href: "/counter-sales", label: "Counter sales", counterSalesOnly: true },
+  { href: "/approvals", label: "Approvals", supplierApprovalsOnly: true },
   { href: "/chat", label: "Chat" },
   { href: "/library", label: "Library" },
   { href: "/archive", label: "Archive" },
@@ -83,7 +86,9 @@ export function Sidebar({
               (!item.billingOnly || canViewBilling(profile.role)) &&
               (!item.counterSalesOnly || canViewCounterSales(profile.role)) &&
               (!item.operationsManagerOnly || canManageOperations(profile.role)) &&
-              (!item.paintYardOnly || canViewPaintYard(profile.role)),
+              (!item.paintYardOnly || canViewPaintYard(profile.role)) &&
+              (!item.supplierApprovalsOnly ||
+                canProposeSupplierChange(profile.role)),
           )
           .map((item) => {
             const active =

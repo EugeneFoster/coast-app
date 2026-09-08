@@ -103,6 +103,10 @@ Add these under the service's **Variables** tab:
 | `R2_ENDPOINT` | **Required for drawings** — Cloudflare R2 endpoint |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | **Required for drawings** |
 | `R2_BUCKET` | `coast-tiles` (optional) |
+| `mercury_link` / `mercury_login` / `mercury_password` | Mercury dealer portal (supplier lookup, server-side only) |
+| `marinepartssupply_link` / `_login` / `_password` | Marine Parts Supply portal (server-side only) |
+| `westernmarine_link` / `_login` / `_password` | Western Marine portal (server-side only) |
+| `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET` / `XERO_REDIRECT_URI` | Reserved for the Xero integration (no client implemented yet) |
 
 Configured accounts (`ADMIN_*`, `DRAW_*`) are created/synced automatically on first sign-in.
 
@@ -266,6 +270,84 @@ and reversal, inventory roles, and totals inside a rolled-back transaction:
 
 ```bash
 railway run -- npm run db:check-inventory-migration
+```
+
+## Supplier lookup & change approvals
+
+Owners, project managers, CAD designers, and parts staff can look a part number up
+at **Mercury**, **Marine Parts Supply**, and **Western Marine** from a work order
+(**Search suppliers**). Suppliers are queried concurrently and each card resolves
+on its own, so a slow portal never holds up the ones that already answered.
+
+Looking things up is read-only. Nothing a supplier says is written to the CRM
+automatically: acting on a result raises a **change approval request**, and the
+part, cost, or part number only changes once an owner or project manager presses
+Approve on `/approvals`. From a work order, a result can be proposed as a new
+line, a verified cost update for a matching existing line, or a supplier-reported
+supersession. Rejecting leaves everything untouched.
+
+The guarantees are enforced in the database, not in the UI:
+
+- The request table has no write policies at all. Every status transition goes
+  through a `SECURITY DEFINER` function that checks the caller's role first.
+- Deciding takes a row lock, so a simultaneous approve and reject serialise and
+  the loser is told the request is already decided.
+- The approved CRM mutation and its `executed` lifecycle transition happen in
+  one locked database transaction, so a crash cannot apply a row while leaving
+  the request stuck, and a double-click cannot apply it twice.
+- The atomic execution function checks the approver role itself. Legacy split
+  execution helpers are not granted to client roles.
+- If the supplier data behind a decision is more than five minutes old it is
+  re-read before the change lands. A moved price, part number, supersession,
+  currency, or availability sends the request back for re-approval rather than
+  applying a number the approver never saw.
+- Every proposal, decision, execution and sync attempt is recorded in an
+  append-only audit trail.
+
+Supplier credentials (`mercury_*`, `marinepartssupply_*`, `westernmarine_*`) are
+read server-side only. Portal URLs come from the environment, never from a
+request, so the integration cannot be pointed at an arbitrary host.
+
+### Supplier activation status
+
+| Supplier | State | Notes |
+|---|---|---|
+| **Marine Parts Supply** | **Live** | FastAPI backend, OAuth2 password grant, `GET /api/inventory/search`. Verified end to end against the dealer account: the authenticated `current_price` is the account price and differs from `price_retail`. Exact search rows are enriched from the part detail endpoint so its `substitutes` supersession is visible in the work-order flow. |
+| Western Marine | Login mapped, search pending | Portal is Strategi by ADVANCED BusinessLink over IBM i. The HTTP Basic handshake (`/Store/homepage.html?Location=001` → `*AUTHENTICATE` → Basic) is implemented; the authenticated Store search endpoint still needs capturing. `Location=001` is Western Marine, `002` is Transat Marine. |
+| Mercury | Blocked | MercNET answers 403 to server-side requests and is normally signed into by hand. Needs either an official dealer API credential or an allow-listed service account — this integration does not attempt to defeat bot protection. |
+
+An adapter that is not activated reports `PORTAL_CONTRACT_UNCONFIRMED`, which the
+search fan-out isolates per supplier, so the others keep working. Each file under
+`src/lib/suppliers/adapters/` carries an `openQuestions` list naming exactly what
+is still needed. Activating one is a contract change plus a response parser; it
+needs no change to the search API, the approval workflow, the UI, or the Xero
+seam.
+
+### Xero
+
+`XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, and `XERO_REDIRECT_URI` are provisioned,
+but this repository contains no Xero client — no OAuth flow, token store, or API
+call. The accounting sync seam (`src/lib/xero/sync.ts`) therefore reports
+"not configured" on every approval card, and a change is never recorded as synced
+when it was not. Connecting Xero means implementing `XeroSyncAdapter` and swapping
+one export; the approval gate already sits in front of it, and a failed sync
+surfaces as a `sync_failed` notification with a retry that reuses the original
+idempotency key.
+
+Validate the P11 migration, proposal isolation, rejection, single execution,
+double-approve protection, stale re-approval, audit immutability, and role
+enforcement inside a rolled-back transaction:
+
+```bash
+railway run -- npm run db:check-supplier-approval-migration
+```
+
+Exercise the supplier layer (classification, failure isolation, caching,
+single-flight login, and credential redaction) with fake adapters and no live
+portal:
+
+```bash
+npm run check:suppliers
 ```
 
 ## Billing & project profitability
