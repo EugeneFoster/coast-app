@@ -28,6 +28,7 @@ interface XeroItem {
   PurchaseDetails?: XeroItemDetails;
   UpdatedDateUTC?: string;
   Status?: string;
+  StatusAttributeString?: string;
   ValidationErrors?: Array<{ Message?: string }>;
 }
 
@@ -42,6 +43,7 @@ interface ExistingInventoryItem {
   xero_sync_status: InventoryItem["xero_sync_status"];
   quantity_on_hand: number;
   average_cost: number;
+  active: boolean;
 }
 
 export interface InventorySyncResult {
@@ -139,7 +141,7 @@ async function readExistingInventory(supabase: SupabaseClient) {
   for (let offset = 0; ; offset += 1_000) {
     const { data, error } = await supabase
       .from("inventory_items")
-      .select("id, sku, xero_item_id, xero_sync_status, quantity_on_hand, average_cost")
+      .select("id, sku, xero_item_id, xero_sync_status, quantity_on_hand, average_cost, active")
       .order("id")
       .range(offset, offset + 999);
     if (error) throw new Error(`Could not read the CRM inventory: ${error.message}`);
@@ -225,6 +227,7 @@ export async function pullInventoryFromXero(
       const xeroUpdatedAt = xeroDate(xeroItem.UpdatedDateUTC);
 
       const existing = byXeroId.get(xeroItem.ItemID) ?? bySku.get(sku);
+      const xeroStatus = (xeroItem.Status ?? xeroItem.StatusAttributeString)?.toUpperCase();
 
       if (existing && ["pending_push", "failed", "conflict"].includes(existing.xero_sync_status)) {
         conflictIds.push(existing.id);
@@ -239,9 +242,10 @@ export async function pullInventoryFromXero(
         category,
         unit: "ea",
         selling_price: xeroItem.SalesDetails?.UnitPrice ?? null,
-        // Xero keeps archived catalogue items in the Items endpoint. Preserve
-        // them for history, but only expose ACTIVE records as sellable stock.
-        active: xeroItem.Status ? xeroItem.Status === "ACTIVE" : true,
+        // Xero's Items API commonly omits archive state even though the web
+        // export contains it. Preserve the CRM's known state when that field
+        // is absent so a later catalogue pull cannot reactivate archived SKUs.
+        active: xeroStatus ? xeroStatus === "ACTIVE" : existing?.active ?? true,
         ...(!existing ? { source: "xero" } : {}),
         xero_item_id: xeroItem.ItemID,
         xero_is_tracked: tracked,
