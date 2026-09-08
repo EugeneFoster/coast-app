@@ -33,13 +33,44 @@ export default async function ProjectsPage({
     query = query.eq("status", statusFilter);
   }
 
-  const { data: projects } = await query;
+  // Status tallies for the tab badges and the actionable subtitle. RLS scopes
+  // this to what the user can already see, so the counts match the grid.
+  const [{ data: projects }, { data: allRows }] = await Promise.all([
+    query,
+    supabase.from("projects").select("status").neq("status", "archived"),
+  ]);
+
+  const counts = (allRows ?? []).reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = (acc[row.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const activeTotal = allRows?.length ?? 0;
+  const inReview = counts.in_review ?? 0;
+  const countFor = (value: ProjectStatus | "all") =>
+    value === "all" ? activeTotal : (counts[value] ?? 0);
 
   return (
     <>
-      <section className="bg-bone px-8 pt-8">
-        <div className="flex items-center justify-between">
-          <h1 className="font-display text-3xl font-medium text-ink">Projects</h1>
+      <section className="bg-bone px-8 pt-7">
+        <p className="kicker">Work</p>
+        <div className="mt-1 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="font-display text-3xl font-medium text-ink">Projects</h1>
+            <p className="mt-1 text-sm text-graph">
+              {activeTotal} active
+              {inReview > 0 && (
+                <>
+                  {" · "}
+                  <Link
+                    href="/projects?status=in_review"
+                    className="text-weld-text underline-offset-2 hover:underline"
+                  >
+                    {inReview} waiting on review
+                  </Link>
+                </>
+              )}
+            </p>
+          </div>
           {admin && (
             <Link
               href="/projects/new"
@@ -50,7 +81,7 @@ export default async function ProjectsPage({
           )}
         </div>
 
-        <div className="mt-6 flex gap-6">
+        <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
           {filters.map((f) => {
             const active =
               (f.value === "all" && !statusFilter) || statusFilter === f.value;
@@ -60,11 +91,12 @@ export default async function ProjectsPage({
                 href={
                   f.value === "all" ? "/projects" : `/projects?status=${f.value}`
                 }
-                className={`relative pb-3 text-sm transition-colors ${
+                className={`relative flex items-center gap-2 pb-3 text-sm transition-colors ${
                   active ? "text-ink" : "text-graph hover:text-ink"
                 }`}
               >
                 {f.label}
+                <span className="count-badge">{countFor(f.value)}</span>
                 {active && (
                   <span className="absolute bottom-0 left-0 h-0.5 w-full bg-weld" />
                 )}
@@ -76,7 +108,7 @@ export default async function ProjectsPage({
         <HairlineMotif className="mt-4 pb-1" />
       </section>
 
-      <section className="blueprint px-8 pb-8 pt-8">
+      <section className="bg-bone px-8 pb-10 pt-8">
         {projects && projects.length > 0 ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((project) => (
@@ -84,7 +116,14 @@ export default async function ProjectsPage({
             ))}
           </div>
         ) : (
-          <p className="text-center text-graph">No projects yet</p>
+          <div className="rounded-md border border-dashed border-rule bg-paper px-6 py-16 text-center">
+            <p className="font-display text-lg text-ink">No projects here</p>
+            <p className="mt-1 text-sm text-graph">
+              {statusFilter && statusFilter !== "all"
+                ? "Nothing matches this filter yet."
+                : "New projects will appear here as they are created."}
+            </p>
+          </div>
         )}
       </section>
     </>
