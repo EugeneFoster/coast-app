@@ -80,8 +80,8 @@ export default async function InventoryPage({
     0,
   );
   const normalizedQuery = q.trim().toLowerCase();
-  const matchingItems = items.filter((item) => {
-    const isLow = item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
+  const matchingItems = activeItems.filter((item) => {
+    const isLow = Number(item.quantity_on_hand) <= Number(item.reorder_point);
     const matchesQuery =
       !normalizedQuery ||
       item.name.toLowerCase().includes(normalizedQuery) ||
