@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/inventory", label: "Stock", exact: true },
   { href: "/inventory/suppliers", label: "Suppliers", purchasing: true },
+  { href: "/inventory/price-alerts", label: "Price alerts", purchasing: true },
   {
     href: "/inventory/purchase-orders",
     label: "Purchase orders",

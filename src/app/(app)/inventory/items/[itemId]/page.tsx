@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { InventoryAdjustmentForm } from "@/components/inventory-adjustment-form";
 import { InventoryItemForm } from "@/components/inventory-item-form";
+import { CheckSupplierPriceWatchButton, CreateSupplierPriceWatchForm } from "@/components/supplier-price-watch-controls";
 import { requireInventoryViewer } from "@/lib/auth";
 import {
   canManageInventory,
@@ -40,7 +41,7 @@ export default async function InventoryItemPage({
   if (!data) notFound();
   const item = data as ItemRow;
 
-  const [suppliers, movementResult] = await Promise.all([
+  const [suppliers, movementResult, priceWatchResult] = await Promise.all([
     canManage ? getSupplierOptions() : Promise.resolve([]),
     showPurchasing
       ? supabase
@@ -50,8 +51,14 @@ export default async function InventoryItemPage({
           .order("occurred_at", { ascending: false })
           .limit(100)
       : Promise.resolve({ data: [] }),
+    showPurchasing
+      ? supabase.from("supplier_price_watches")
+          .select("id, supplier_code, query_part_number, confirmed_currency, last_checked_at, last_error, active")
+          .eq("inventory_item_id", itemId)
+      : Promise.resolve({ data: [] }),
   ]);
   const movements = (movementResult.data ?? []) as InventoryMovement[];
+  const priceWatches = priceWatchResult.data ?? [];
   const inventoryValue = Number(item.quantity_on_hand) * Number(item.average_cost);
   const lowStock =
     item.active && Number(item.quantity_on_hand) <= Number(item.reorder_point);
@@ -129,6 +136,31 @@ export default async function InventoryItemPage({
           </div>
         </dl>
       </section>
+
+      {showPurchasing && (
+        <section className="mt-6 rounded border border-rule bg-paper p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="font-display text-lg text-ink">Supplier price watches</h3>
+            <Link href="/inventory/price-alerts" className="text-sm text-graph hover:text-ink">View price alerts →</Link>
+          </div>
+          {priceWatches.map((priceWatch) => (
+            <div key={priceWatch.id} className="mt-3 space-y-2 border-t border-rule pt-3 text-sm text-graph">
+              <p>{priceWatch.supplier_code === "marinepartssupply" ? "Marine Parts Supply" : "Western Marine"} part/code <span className="font-mono text-ink">{priceWatch.query_part_number}</span> · {priceWatch.active ? "active" : "inactive"}</p>
+              <p>Account currency {priceWatch.confirmed_currency ?? "unconfirmed"} · Last check {priceWatch.last_checked_at ? new Date(priceWatch.last_checked_at).toLocaleString("en-CA") : "not yet"}</p>
+              {priceWatch.last_error && <p role="alert" className="text-weld-text">{priceWatch.last_error}</p>}
+              {canManage && priceWatch.active && <CheckSupplierPriceWatchButton watchId={priceWatch.id} />}
+            </div>
+          ))}
+          {canManage && Number(item.quantity_on_hand) > 0 ? (
+            <>
+              <p className="mt-2 text-xs text-graph">One-time exact product link; the monitor will check subsequent dealer price changes automatically.</p>
+              <CreateSupplierPriceWatchForm itemId={item.id} sku={item.sku} />
+            </>
+          ) : priceWatches.length === 0 ? (
+            <p className="mt-2 text-xs text-graph">Price watches are available for active stock currently on hand.</p>
+          ) : null}
+        </section>
+      )}
 
       {canManage && (
         <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(19rem,1fr)]">

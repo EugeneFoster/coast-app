@@ -21,7 +21,8 @@
     "db:check-paint-yard-migration": "node scripts/check-paint-yard-migration.mjs",
     "db:check-onshape-migration": "node scripts/check-onshape-migration.mjs",
     "check:onshape": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/check-onshape-integration.mjs",
-    "db:verify": "node scripts/verify-production-schema.mjs"
+    "db:verify": "node scripts/verify-production-schema.mjs",
+    "db:apply-supplier-price-watch": "node scripts/apply-supplier-price-watch-migration.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",

@@ -10,6 +10,7 @@ import {
   canViewBilling,
   canViewCounterSales,
   canViewInventory,
+  canViewPurchasing,
   canViewPaintYard,
   canViewSales,
   userRoleLabel,
@@ -40,6 +41,7 @@ const navGroups: Array<{ title: string; items: NavItem[] }> = [
       { href: "/paint-yard", label: "Paint yard", icon: "droplet", permission: (p) => canViewPaintYard(p.role) },
       { href: "/schedule", label: "Team schedule", icon: "users", permission: (p) => canManageOperations(p.role) },
       { href: "/inventory", label: "Inventory", icon: "package", permission: (p) => canViewInventory(p.role) },
+      { href: "/inventory/price-alerts", label: "Price alerts", icon: "alert", permission: (p) => canViewPurchasing(p.role) },
     ],
   },
   {
@@ -104,7 +106,7 @@ function Brand({ compact = false, mobile = false }: { compact?: boolean; mobile?
   );
 }
 
-function VisibleNav({ profile, compact = false, onNavigate }: { profile: Profile; compact?: boolean; onNavigate?: () => void }) {
+function VisibleNav({ profile, priceAlertCount, compact = false, onNavigate }: { profile: Profile; priceAlertCount: number; compact?: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
   const railHrefs = new Set(["/projects", "/my-day", "/work-orders", "/paint-yard", "/inventory", "/sales", "/chat"]);
   return (
@@ -131,7 +133,7 @@ function VisibleNav({ profile, compact = false, onNavigate }: { profile: Profile
                   {active && <span className="absolute left-0 top-1/2 h-[22px] w-[3px] -translate-y-1/2 bg-weld" />}
                   <DesignIcon name={item.icon} size={compact ? 20 : 18} />
                   <span className={compact ? "truncate" : "flex-1"}>{compact && item.label === "Work orders" ? "Work" : compact && item.label === "Paint yard" ? "Paint" : compact && item.label === "Inventory" ? "Stock" : compact && item.label === "Sales CRM" ? "Sales" : item.label}</span>
-                  {!compact && item.badge && <span className="rounded-[3px] border border-[#3a4049] px-1.5 py-0.5 font-mono text-[10px] text-sidebar-graph">{item.badge}</span>}
+                  {!compact && (item.badge || (item.href === "/inventory/price-alerts" && priceAlertCount > 0)) && <span className="rounded-[3px] border border-[#3a4049] px-1.5 py-0.5 font-mono text-[10px] text-sidebar-graph">{item.href === "/inventory/price-alerts" ? priceAlertCount : item.badge}</span>}
                 </Link>
               );
             })}
@@ -207,7 +209,7 @@ function BottomNav({ profile, onMore }: { profile: Profile; onMore: () => void }
   );
 }
 
-export function AppShell({ profile, children }: { profile: Profile; children: React.ReactNode }) {
+export function AppShell({ profile, priceAlertCount, children }: { profile: Profile; priceAlertCount: number; children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const pathname = usePathname();
@@ -225,8 +227,8 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
             <kbd className="rounded-[3px] border border-[#3a4049] px-1 font-mono text-[10px]">⌘K</kbd>
           </label>
         </form>
-        <div className="flex-1 overflow-y-auto py-4 xl:hidden"><VisibleNav profile={profile} compact /></div>
-        <div className="hidden flex-1 overflow-y-auto py-5 xl:block"><VisibleNav profile={profile} /></div>
+        <div className="flex-1 overflow-y-auto py-4 xl:hidden"><VisibleNav profile={profile} priceAlertCount={priceAlertCount} compact /></div>
+        <div className="hidden flex-1 overflow-y-auto py-5 xl:block"><VisibleNav profile={profile} priceAlertCount={priceAlertCount} /></div>
         <div className="hidden xl:block"><SidebarControls /></div>
         <div className="xl:hidden"><Account profile={profile} compact /></div>
         <div className="hidden xl:block"><Account profile={profile} /></div>
@@ -240,7 +242,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
               <Brand />
               <button type="button" onClick={() => setMenuOpen(false)} className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-[4px] border border-sidebar-rule text-sidebar-graph" aria-label="Close navigation">×</button>
             </div>
-            <div className="flex-1 overflow-y-auto py-5"><VisibleNav profile={profile} onNavigate={() => setMenuOpen(false)} /></div>
+            <div className="flex-1 overflow-y-auto py-5"><VisibleNav profile={profile} priceAlertCount={priceAlertCount} onNavigate={() => setMenuOpen(false)} /></div>
             <SidebarControls />
             <Account profile={profile} />
           </aside>
@@ -252,7 +254,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
           <button type="button" onClick={() => setMenuOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-[4px]" aria-label="Menu"><DesignIcon name="menu" size={20} /></button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/quantum-lockup-white.png" alt="Quantum Marine" className="h-[26px] w-[125px] object-contain" />
-          <button type="button" aria-label="Notifications" className="relative ml-auto flex h-11 w-11 items-center justify-center rounded-[4px]"><DesignIcon name="bell" size={18} /><span className="absolute right-[11px] top-[10px] h-1.5 w-1.5 rounded-full bg-[#e5242b]" /></button>
+          {canViewPurchasing(profile.role) && <Link href="/inventory/price-alerts" aria-label={`Supplier price alerts: ${priceAlertCount} open`} className="relative ml-auto flex h-11 w-11 items-center justify-center rounded-[4px]"><DesignIcon name="bell" size={18} />{priceAlertCount > 0 && <span className="absolute right-[8px] top-[6px] min-w-4 rounded-full bg-[#e5242b] px-0.5 text-center font-mono text-[10px] text-white">{priceAlertCount > 99 ? "99+" : priceAlertCount}</span>}</Link>}
         </div>
         <header className="print-hidden flex h-[52px] items-center gap-2.5 border-b border-rule px-3 md:h-14 md:px-4 xl:hidden">
           <h1 className="min-w-0 flex-1 truncate font-display text-xl font-medium text-ink md:text-[22px]">{title}</h1>
