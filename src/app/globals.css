@@ -3,21 +3,27 @@
 @import "@fontsource/oswald/500.css";
 
 :root {
-  --ink: #17181b;
-  --bone: #f4f1e9;
-  --paper: #fbf9f3;
-  --graph: #6c6e73;
-  --rule: #dbd7cb;
-  --weld: #cb5530;
+  --ink: #1b1f26;
+  --bone: #f5f6f8;
+  --paper: #ffffff;
+  --graph: #6b7280;
+  --rule: #e4e6ea;
+  --weld: #1d6ff2;
+  --weld-text: #1657c4;
+  --sidebar: #1b1f26;
+  --sidebar-rule: #2c323b;
+  --sidebar-graph: #9aa3af;
+  --sidebar-ink: #ffffff;
 }
 
 .dark {
-  --ink: #f0ede5;
+  --ink: #e9eaec;
   --bone: #15161a;
   --paper: #1c1d21;
   --graph: #9a9ca1;
   --rule: #2e2f34;
-  --weld: #e0673c;
+  --weld: #4a90ff;
+  --weld-text: #4a90ff;
 }
 
 @theme inline {
@@ -27,6 +33,11 @@
   --color-graph: var(--graph);
   --color-rule: var(--rule);
   --color-weld: var(--weld);
+  --color-weld-text: var(--weld-text);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-rule: var(--sidebar-rule);
+  --color-sidebar-graph: var(--sidebar-graph);
+  --color-sidebar-ink: var(--sidebar-ink);
   --font-display: "Oswald", ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -38,7 +49,16 @@ body {
   background-color: var(--bone);
 }
 
-/* Warm ink-on-bone drafting grid — texture in gutters around cards only */
+::selection {
+  background: color-mix(in srgb, var(--weld) 28%, transparent);
+}
+
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--weld);
+  outline-offset: 2px;
+}
+
+/* Quiet drafting grid behind project media. */
 .blueprint {
   background-color: var(--bone);
   background-image:
@@ -78,20 +98,70 @@ body {
 }
 
 .btn-primary {
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--weld);
   color: #fff;
   font-family: var(--font-sans);
   font-weight: 500;
 }
 
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--weld) 88%, var(--ink));
+}
+
+.btn-primary:active {
+  background: color-mix(in srgb, var(--weld) 76%, var(--ink));
+}
+
 .btn-secondary {
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
   color: var(--ink);
   border: 1px solid var(--ink);
   font-family: var(--font-sans);
   font-weight: 500;
+}
+
+.btn-secondary:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.coast-sidebar {
+  background: var(--sidebar);
+  color: var(--sidebar-ink);
+  border-color: var(--sidebar-rule);
+}
+
+.coast-sidebar :where(a, button, input):focus-visible {
+  outline-color: var(--weld);
+}
+
+.coast-sidebar-link:hover {
+  background: rgba(255,255,255,.08);
+  color: #fff;
+}
+
+.blueprint-corner {
+  position: absolute;
+  z-index: 2;
+  width: 7px;
+  height: 7px;
+  border-color: var(--weld);
+  border-style: solid;
+  border-width: 0;
+  font-size: 0;
+  pointer-events: none;
+}
+
+.blueprint-corner.tl { left: -1px; top: -1px; border-top-width: 1px; border-left-width: 1px; }
+.blueprint-corner.tr { right: -1px; top: -1px; border-top-width: 1px; border-right-width: 1px; }
+.blueprint-corner.bl { bottom: -1px; left: -1px; border-bottom-width: 1px; border-left-width: 1px; }
+.blueprint-corner.br { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+
+@media (max-width: 767px) {
+  .app-content {
+    padding-bottom: 74px;
+  }
 }
 
 .font-display {

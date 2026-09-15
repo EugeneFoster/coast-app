@@ -1,6 +1,5 @@
-import { requireUser, isAdmin } from "@/lib/auth";
-import { Sidebar } from "@/components/sidebar";
-import { ThemeToggle } from "@/components/theme-provider";
+import { requireUser } from "@/lib/auth";
+import { AppShell } from "@/components/app-shell";
 
 export default async function AppLayout({
   children,
@@ -9,15 +8,5 @@ export default async function AppLayout({
 }) {
   const { profile } = await requireUser();
 
-  return (
-    <div className="flex min-h-screen">
-      <Sidebar profile={profile} isAdminUser={isAdmin(profile)} />
-      <div className="flex min-w-0 flex-1 flex-col bg-bone">
-        <header className="print-hidden flex items-center justify-end px-6 py-3">
-          <ThemeToggle />
-        </header>
-        <main className="flex-1">{children}</main>
-      </div>
-    </div>
-  );
+  return <AppShell profile={profile}>{children}</AppShell>;
 }

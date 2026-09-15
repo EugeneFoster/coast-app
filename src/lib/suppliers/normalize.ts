@@ -1,0 +1,238 @@
+import { SUPPLIER_LABELS, type MatchType, type StockStatus, type SupplierId, type SupplierPartResult } from "@/lib/suppliers/types";
+
+/**
+ * Part number handling.
+ *
+ * Marine part numbers carry meaning in their punctuation — `18-2001` and
+ * `182001` are not interchangeable, and `35-8M0103970` is a supplier prefix
+ * plus an OEM number. So normalization is deliberately conservative: we trim,
+ * collapse runs of whitespace and upper-case. Nothing else. Hyphens, slashes
+ * and dots survive untouched.
+ */
+export function normalizePartNumber(raw: string): string {
+  return raw.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+/**
+ * Two numbers are the *same* number only when they normalize identically.
+ * Punctuation differences are treated as real differences, because at this
+ * layer we have no evidence that they are equivalent.
+ */
+export function partNumbersMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  return normalizePartNumber(a) === normalizePartNumber(b);
+}
+
+/**
+ * A punctuation-insensitive key.
+ *
+ * This exists ONLY to group and rank near-misses in the UI. It must never be
+ * used to decide `exactMatch`: collapsing `18-2001` and `182001` into one key
+ * is a useful hint, not proof that the supplier considers them the same part.
+ */
+export function looseKey(raw: string): string {
+  return raw.replace(/[^a-z0-9]/gi, "").toUpperCase();
+}
+
+export function isValidSearchQuery(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed.length < 2 || trimmed.length > 64) return false;
+  // Part numbers and short descriptive searches only — no control characters.
+  return !/[\x00-\x1F\x7F]/.test(trimmed);
+}
+
+const STOCK_STATUSES = new Set<StockStatus>([
+  "in_stock",
+  "low_stock",
+  "out_of_stock",
+  "backorder",
+  "special_order",
+  "discontinued",
+  "unknown",
+]);
+
+export function coerceStockStatus(value: unknown): StockStatus {
+  return typeof value === "string" && STOCK_STATUSES.has(value as StockStatus)
+    ? (value as StockStatus)
+    : "unknown";
+}
+
+/**
+ * Parse a money value that a portal rendered as text.
+ *
+ * Returns null for anything that is not unambiguously a number — an absent
+ * price must stay absent rather than silently becoming 0.
+ */
+export function parseMoney(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== "string") return null;
+  const cleaned = value.replace(/[^0-9.,-]/g, "").trim();
+  if (!cleaned) return null;
+
+  // Handle both 1,234.56 and 1.234,56 without guessing when it is ambiguous.
+  let candidate = cleaned;
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  if (lastComma > -1 && lastDot > -1) {
+    candidate =
+      lastComma > lastDot
+        ? cleaned.replace(/\./g, "").replace(",", ".")
+        : cleaned.replace(/,/g, "");
+  } else if (lastComma > -1) {
+    const decimals = cleaned.length - lastComma - 1;
+    candidate = decimals === 3 ? cleaned.replace(/,/g, "") : cleaned.replace(",", ".");
+  }
+
+  const parsed = Number(candidate);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+export function parseQuantity(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== "string") return null;
+  const digits = value.replace(/[^0-9]/g, "");
+  if (!digits) return null;
+  const parsed = Number(digits);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+export function cleanText(value: unknown, maxLength = 500): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLength);
+}
+
+export function normalizeCurrency(value: unknown): string | null {
+  const text = cleanText(value, 8);
+  if (!text) return null;
+  const upper = text.toUpperCase();
+  if (/^[A-Z]{3}$/.test(upper)) return upper;
+  if (upper.includes("CAD") || upper.includes("C$")) return "CAD";
+  if (upper.includes("USD")) return "USD";
+  return null;
+}
+
+/**
+ * Only accept absolute http(s) URLs that the portal itself produced, and strip
+ * any credential material a portal might embed in a link.
+ */
+export function sanitizeProductUrl(value: unknown, baseUrl?: string): string | null {
+  const text = cleanText(value, 2000);
+  if (!text) return null;
+  try {
+    const url = baseUrl ? new URL(text, baseUrl) : new URL(text);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    url.username = "";
+    url.password = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (/pass|pwd|token|secret|session|auth|key/i.test(key)) {
+        url.searchParams.delete(key);
+      }
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export interface BuildResultInput {
+  supplier: SupplierId;
+  searchedPartNumber: string;
+  partNumber: string;
+  supplierSku?: string | null;
+  description?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+  dealerCost?: number | null;
+  listPrice?: number | null;
+  currency?: string | null;
+  stockStatus?: StockStatus;
+  quantityAvailable?: number | null;
+  warehouse?: string | null;
+  eta?: string | null;
+  backorder?: boolean | null;
+  supersededBy?: string | null;
+  replaces?: string[];
+  productUrl?: string | null;
+  imageUrl?: string | null;
+  /**
+   * Force the classification. Adapters pass this when the portal explicitly
+   * says a number is superseded or that a row is a suggestion rather than a
+   * hit. Otherwise it is derived by comparing part numbers.
+   */
+  matchType?: MatchType;
+  checkedAt?: string;
+}
+
+/**
+ * Assemble a normalized result, deriving the match classification when the
+ * adapter did not state one.
+ *
+ * A result is `exact` only when the returned number equals the searched number.
+ * If the supplier named a replacement, it is `superseded`. Everything else is
+ * `related` — a suggestion the user must read as such.
+ */
+export function buildResult(input: BuildResultInput): SupplierPartResult {
+  const searchedPartNumber = normalizePartNumber(input.searchedPartNumber);
+  const partNumber = normalizePartNumber(input.partNumber);
+  const supersededBy = input.supersededBy
+    ? normalizePartNumber(input.supersededBy)
+    : null;
+
+  let matchType: MatchType;
+  if (input.matchType) {
+    matchType = input.matchType;
+  } else if (supersededBy && !partNumbersMatch(supersededBy, searchedPartNumber)) {
+    matchType = "superseded";
+  } else if (partNumbersMatch(partNumber, searchedPartNumber)) {
+    matchType = "exact";
+  } else {
+    matchType = "related";
+  }
+
+  return {
+    supplier: input.supplier,
+    supplierName: SUPPLIER_LABELS[input.supplier],
+    searchedPartNumber,
+    partNumber,
+    supplierSku: input.supplierSku ? normalizePartNumber(input.supplierSku) : null,
+    description: input.description ?? null,
+    manufacturer: input.manufacturer ?? null,
+    brand: input.brand ?? null,
+    dealerCost: input.dealerCost ?? null,
+    listPrice: input.listPrice ?? null,
+    currency: input.currency ?? null,
+    stockStatus: input.stockStatus ?? "unknown",
+    quantityAvailable: input.quantityAvailable ?? null,
+    warehouse: input.warehouse ?? null,
+    eta: input.eta ?? null,
+    backorder: input.backorder ?? null,
+    supersededBy,
+    replaces: (input.replaces ?? []).map(normalizePartNumber).filter(Boolean),
+    productUrl: input.productUrl ?? null,
+    imageUrl: input.imageUrl ?? null,
+    matchType,
+    exactMatch: matchType === "exact",
+    checkedAt: input.checkedAt ?? new Date().toISOString(),
+  };
+}
+
+const MATCH_RANK: Record<MatchType, number> = {
+  exact: 0,
+  superseded: 1,
+  related: 2,
+};
+
+/** Exact hits first, then supersessions, then suggestions. */
+export function sortResults(results: SupplierPartResult[]): SupplierPartResult[] {
+  return [...results].sort((a, b) => {
+    const byMatch = MATCH_RANK[a.matchType] - MATCH_RANK[b.matchType];
+    if (byMatch !== 0) return byMatch;
+    return a.supplierName.localeCompare(b.supplierName);
+  });
+}

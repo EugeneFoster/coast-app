@@ -1,0 +1,8 @@
+.git
+.branches
+.next
+node_modules
+.env*
+*.pem
+*.tsbuildinfo
+.DS_Store

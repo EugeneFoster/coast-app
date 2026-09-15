@@ -1,11 +1,11 @@
 {
-  "name": "COAST — metal works",
+  "name": "Quantum Marine — COAST",
   "short_name": "COAST",
   "description": "Field app for coastal metal fabrication",
   "start_url": "/",
   "display": "browser",
-  "background_color": "#F4F1E9",
-  "theme_color": "#CB5530",
+  "background_color": "#F5F6F8",
+  "theme_color": "#1B1F26",
   "orientation": "any",
   "icons": [
     {

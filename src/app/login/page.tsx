@@ -12,13 +12,10 @@ export default async function LoginPage({
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <p className="font-display text-3xl font-medium uppercase tracking-[0.35em] text-ink">
-            COAST
-          </p>
-          <p className="mt-1 text-xs tracking-[0.2em] text-graph">
-            metal works
-          </p>
+        <div className="mb-5 flex flex-col items-center rounded-[4px] bg-sidebar px-4 py-5 text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/quantum-marine-white.png" alt="Quantum Marine" className="h-[91px] w-[156px] object-contain" />
+          <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-sidebar-graph">COAST workspace</p>
         </div>
 
         <form

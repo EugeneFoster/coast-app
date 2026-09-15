@@ -31,6 +31,16 @@ export default async function SuppliersPage() {
         )}
       </div>
 
+      <Link
+        href="/inventory/western-marine"
+        className="mt-6 block rounded border border-rule bg-paper p-5 transition-colors hover:border-ink/30"
+      >
+        <h3 className="font-display text-lg font-medium text-ink">Western Marine dealer lookup →</h3>
+        <p className="mt-1 text-sm text-graph">
+          Search manufacturer part numbers and Western Marine catalogue codes without changing stock or costs.
+        </p>
+      </Link>
+
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {suppliers.map((supplier) => (
           <Link

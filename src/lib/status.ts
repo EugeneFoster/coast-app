@@ -12,9 +12,9 @@ export const STATUS: Record<
   },
   in_progress: {
     label: "In progress",
-    text: "var(--weld)",
+    text: "var(--ink)",
     border: "var(--weld)",
-    bg: "transparent",
+    bg: "var(--weld)",
   },
   in_review: {
     label: "In review",
@@ -24,7 +24,7 @@ export const STATUS: Record<
   },
   completed: {
     label: "Completed",
-    text: "var(--bone)",
+    text: "var(--ink)",
     border: "var(--ink)",
     bg: "var(--ink)",
   },

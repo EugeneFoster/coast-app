@@ -27,8 +27,8 @@ export function StatusSelect({
       }}
       onClick={(e) => e.stopPropagation()}
       style={statusStyles(value)}
-      className={`rounded-[14px] border font-mono focus:outline-none focus:ring-1 focus:ring-weld/40 ${
-        compact ? "px-2 py-0.5 text-xs" : "px-3 py-1.5 text-sm"
+      className={`rounded-[3px] border font-mono focus:outline-none ${
+        compact ? "px-2 py-1 text-[11px]" : "px-3 py-1.5 text-sm"
       }`}
     >
       {EDITABLE_STATUSES.map((status) => (
