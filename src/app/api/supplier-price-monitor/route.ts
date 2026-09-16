@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { discoverMarinePartsSupplyWatches, runDueSupplierPriceChecks } from "@/lib/suppliers/price-watch";
+import { discoverSupplierPriceWatches, runDueSupplierPriceChecks } from "@/lib/suppliers/price-watch";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   }
   try {
     const checks = await runDueSupplierPriceChecks(30);
-    const discovery = await discoverMarinePartsSupplyWatches(10);
+    const discovery = await discoverSupplierPriceWatches(10);
     return Response.json({ checks, discovery });
   } catch (error) {
     console.error("Supplier price monitoring failed", error);

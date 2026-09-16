@@ -42,15 +42,46 @@ export const priceWatchAdapters = {
   marinepartssupply: new MarinePartsSupplyAdapter(),
 } as const;
 
+export async function assertPriceSupplierRoute(itemId: string, supplierCode: string, manualSelection = false) {
+  const { data, error } = await createAdminClient().rpc("supplier_price_route", {
+    p_item_id: itemId,
+    p_manual_supplier: manualSelection ? supplierCode : null,
+  });
+  if (error) throw new Error("Supplier routing: could not verify the item's supplier.");
+  const route = data?.[0];
+  if (!route || route.supplier_code !== supplierCode) {
+    const selected = route?.supplier_code === "westernmarine" ? "Western Marine"
+      : route?.supplier_code === "marinepartssupply" ? "Marine Parts Supply" : null;
+    throw new Error(`Supplier routing: ${selected ? `use ${selected}. ` : ""}${route?.reason ?? "Item not found"}.`);
+  }
+}
+
+export async function assertCatalogueSupplierRange(result: SupplierPartResult) {
+  const { data, error } = await createAdminClient().rpc("choose_price_supplier", {
+    p_sku: result.partNumber,
+    p_name: result.description ?? "",
+    p_description: null,
+    p_manufacturer: [result.manufacturer, result.brand].filter(Boolean).join(" "),
+    p_category: "part",
+    p_assigned: result.supplier,
+  });
+  if (error || data?.[0]?.supplier_code !== result.supplier) {
+    throw new Error(`Supplier routing: ${data?.[0]?.reason ?? "catalogue product range could not be verified"}.`);
+  }
+}
+
 export async function checkSupplierPriceWatch(watch: SupplierPriceWatch) {
   const admin = createAdminClient();
   try {
+    if (!watch.active) throw new Error("Supplier routing: this price watch is inactive.");
+    await assertPriceSupplierRoute(watch.inventory_item_id, watch.supplier_code);
     const adapter = priceWatchAdapters[watch.supplier_code as keyof typeof priceWatchAdapters];
     if (!adapter) throw new Error("Unsupported supplier price watch.");
     const result = findWatchedPart(await adapter.searchPart(watch.query_part_number), watch);
     if (!result) {
       throw new Error("The supplier no longer returns the same exact part and catalogue code.");
     }
+    await assertCatalogueSupplierRange(result);
     if (result.currency && watch.confirmed_currency &&
         result.currency !== watch.confirmed_currency) {
       throw new Error("Supplier price currency conflicts with the confirmed account currency.");
@@ -90,7 +121,8 @@ export async function checkSupplierPriceWatch(watch: SupplierPriceWatch) {
       (caught.message.startsWith("The supplier") ||
         caught.message.startsWith("Supplier price currency") ||
         caught.message.startsWith("Supplier package size") ||
-        caught.message.startsWith("Price-watch mapping"))
+        caught.message.startsWith("Price-watch mapping") ||
+        caught.message.startsWith("Supplier routing:"))
       ? caught.message
       : toSupplierError(watch.supplier_code, caught).userMessage;
     await admin.from("supplier_price_watches").update({
@@ -101,8 +133,15 @@ export async function checkSupplierPriceWatch(watch: SupplierPriceWatch) {
   }
 }
 
+export async function reconcilePriceSupplierRoutes() {
+  const { data: paused, error: routingError } = await createAdminClient().rpc("reconcile_supplier_price_routes");
+  if (routingError) throw new Error(routingError.message);
+  return Number(paused ?? 0);
+}
+
 export async function runDueSupplierPriceChecks(limit = 40) {
   const admin = createAdminClient();
+  const paused = await reconcilePriceSupplierRoutes();
   const dueBefore = new Date(Date.now() - 23 * 60 * 60 * 1000).toISOString();
   const { data, error } = await admin.from("supplier_price_watches")
     .select("id, inventory_item_id, supplier_code, query_part_number, expected_part_number, expected_supplier_sku, confirmed_currency, active, last_attempted_at, inventory_items!inner(active, quantity_on_hand)")
@@ -126,45 +165,53 @@ export async function runDueSupplierPriceChecks(limit = 40) {
       failed++;
     }
   }
-  return { checked, alerts, failed };
+  return { checked, alerts, failed, paused };
 }
 
-/** Slowly link stocked items whose SKU is exactly a signed-in MPS catalogue part number. */
-export async function discoverMarinePartsSupplyWatches(limit = 10) {
+/** One eligible supplier per item; no fallback search in an unrelated catalogue. */
+export async function discoverSupplierPriceWatches(limit = 10) {
   const admin = createAdminClient();
-  const { data: candidates, error } = await admin.rpc("supplier_price_discovery_candidates", {
+  const { data: candidates, error } = await admin.rpc("routed_supplier_price_candidates", {
     p_limit: Math.min(Math.max(limit, 1), 20),
   });
   if (error) throw new Error(error.message);
-  const { data: setting } = await admin.from("supplier_price_currency_settings")
-    .select("currency, confirmed_by, confirmed_at")
-    .eq("supplier_code", "marinepartssupply").maybeSingle();
+  const { data: settings, error: settingsError } = await admin.from("supplier_price_currency_settings")
+    .select("supplier_code, currency, confirmed_by, confirmed_at");
+  if (settingsError) throw new Error(settingsError.message);
   let linked = 0;
   let noMatch = 0;
   let failed = 0;
+  const unavailable = new Set<string>();
 
   for (const item of candidates ?? []) {
-    const query = normalizePartNumber(item.sku);
+    const supplierCode = item.supplier_code as keyof typeof priceWatchAdapters;
+    const adapter = priceWatchAdapters[supplierCode];
+    if (!adapter || unavailable.has(supplierCode)) continue;
+    const setting = settings?.find((row) => row.supplier_code === supplierCode);
+    const query = normalizePartNumber(item.query_part_number);
     if (!isValidSearchQuery(query)) continue;
     try {
+      await assertPriceSupplierRoute(item.item_id, supplierCode);
       const match = findCatalogueMatch(
-        await priceWatchAdapters.marinepartssupply.searchPart(query), query,
+        await adapter.searchPart(query), query,
       );
-      if (!match || !partNumbersMatch(match.partNumber, item.sku)) {
-        await admin.from("supplier_price_discovery_attempts").upsert({
+      if (!match) {
+        const { error: attemptError } = await admin.from("supplier_price_discovery_attempts").upsert({
           inventory_item_id: item.item_id,
-          supplier_code: "marinepartssupply",
+          supplier_code: supplierCode,
           last_status: "no_match",
           last_error: null,
           last_attempted_at: new Date().toISOString(),
         });
+        if (attemptError) throw new Error(attemptError.message);
         noMatch++;
         continue;
       }
+      await assertCatalogueSupplierRange(match);
       const { data: watch, error: insertError } = await admin.from("supplier_price_watches")
         .insert({
           inventory_item_id: item.item_id,
-          supplier_code: "marinepartssupply",
+          supplier_code: supplierCode,
           query_part_number: query,
           expected_part_number: match.partNumber,
           expected_supplier_sku: match.supplierSku,
@@ -181,16 +228,18 @@ export async function discoverMarinePartsSupplyWatches(limit = 10) {
       if (!checked.ok) failed++;
     } catch (caught) {
       failed++;
-      const message = toSupplierError("marinepartssupply", caught).userMessage;
-      await admin.from("supplier_price_discovery_attempts").upsert({
+      const routeMismatch = caught instanceof Error && caught.message.startsWith("Supplier routing:");
+      const message = routeMismatch ? caught.message : toSupplierError(supplierCode, caught).userMessage;
+      const { error: attemptError } = await admin.from("supplier_price_discovery_attempts").upsert({
         inventory_item_id: item.item_id,
-        supplier_code: "marinepartssupply",
+        supplier_code: supplierCode,
         last_status: "error",
         last_error: message.slice(0, 400),
         last_attempted_at: new Date().toISOString(),
       });
-      // Portal authentication or availability failures should not fan out to every candidate.
-      break;
+      if (attemptError) throw new Error(attemptError.message);
+      // Stop only this portal; its failure must not block the other supplier.
+      if (!routeMismatch) unavailable.add(supplierCode);
     }
   }
   return { linked, noMatch, failed };

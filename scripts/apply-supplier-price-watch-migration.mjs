@@ -7,6 +7,7 @@ const migrations = [
   "supabase/migrations/20260915000002_supplier_price_watch_mps.sql",
   "supabase/migrations/20260915000003_supplier_price_discovery.sql",
   "supabase/migrations/20260916000001_supplier_package_pricing.sql",
+  "supabase/migrations/20260916000002_supplier_routing.sql",
 ];
 
 try {

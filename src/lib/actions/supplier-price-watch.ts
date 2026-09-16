@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireInventoryManager } from "@/lib/auth";
-import { checkSupplierPriceWatch, findCatalogueMatch, priceWatchAdapters, type SupplierPriceWatch } from "@/lib/suppliers/price-watch";
+import { assertCatalogueSupplierRange, assertPriceSupplierRoute, checkSupplierPriceWatch, findCatalogueMatch, priceWatchAdapters, reconcilePriceSupplierRoutes, type SupplierPriceWatch } from "@/lib/suppliers/price-watch";
 import { requiresPriceAlertReview } from "@/lib/suppliers/price-alert-review";
 import { toSupplierError } from "@/lib/suppliers/errors";
 import { isValidSearchQuery, normalizePartNumber, partNumbersMatch } from "@/lib/suppliers/normalize";
@@ -51,9 +51,12 @@ export async function createSupplierPriceWatchAction(
 
   let match;
   try {
+    await assertPriceSupplierRoute(itemId, supplierCode, true);
     match = findCatalogueMatch(await adapter.searchPart(query), query);
+    if (match) await assertCatalogueSupplierRange(match);
   } catch (caught) {
-    return { status: "error", message: toSupplierError(supplierCode, caught).userMessage };
+    return { status: "error", message: caught instanceof Error && caught.message.startsWith("Supplier routing:")
+      ? caught.message : toSupplierError(supplierCode, caught).userMessage };
   }
   if (!match) {
     return { status: "error", message: "The dealer portal did not return one unambiguous exact part/code match." };
@@ -67,25 +70,41 @@ export async function createSupplierPriceWatchAction(
     return { status: "error", message: "The stock SKU differs. Confirm that this is the same product before linking it." };
   }
 
-  const { data: watch, error } = await supabase.from("supplier_price_watches")
-    .insert({
+  const { data: existing, error: existingError } = await supabase.from("supplier_price_watches")
+    .select("id, active, expected_part_number, expected_supplier_sku, confirmed_currency, currency_confirmed_by, currency_confirmed_at")
+    .eq("inventory_item_id", itemId).eq("supplier_code", supplierCode).maybeSingle();
+  if (existingError) return { status: "error", message: existingError.message };
+  if (existing && (existing.active || existing.expected_part_number !== match.partNumber ||
+      existing.expected_supplier_sku !== match.supplierSku)) {
+    return { status: "error", message: "This item already has a watch or a different catalogue mapping. Review the existing watch." };
+  }
+  const payload = {
       inventory_item_id: itemId,
       supplier_code: supplierCode,
       query_part_number: query,
       expected_part_number: match.partNumber,
       expected_supplier_sku: match.supplierSku,
-      confirmed_currency: currency || match.currency || null,
-      currency_confirmed_by: currency ? user.id : null,
-      currency_confirmed_at: currency ? new Date().toISOString() : null,
+      confirmed_currency: currency || existing?.confirmed_currency || match.currency || null,
+      currency_confirmed_by: currency ? user.id : existing?.currency_confirmed_by ?? null,
+      currency_confirmed_at: currency ? new Date().toISOString() : existing?.currency_confirmed_at ?? null,
       mapping_confirmed_by: skuMatches ? null : user.id,
       created_by: user.id,
-    }).select("id, inventory_item_id, supplier_code, query_part_number, expected_part_number, expected_supplier_sku, confirmed_currency, active, last_attempted_at")
+      active: true,
+      last_error: null,
+      last_attempted_at: null,
+    };
+  const mutation = existing
+    ? supabase.from("supplier_price_watches").update(payload).eq("id", existing.id).eq("active", false)
+    : supabase.from("supplier_price_watches").insert(payload);
+  const { data: watch, error } = await mutation
+    .select("id, inventory_item_id, supplier_code, query_part_number, expected_part_number, expected_supplier_sku, confirmed_currency, active, last_attempted_at")
     .single();
   if (error || !watch) {
     return { status: "error", message: error?.code === "23505"
       ? "This item is already watched."
       : error?.message ?? "Could not create price watch." };
   }
+  await reconcilePriceSupplierRoutes();
   const firstCheck = await checkSupplierPriceWatch(watch as SupplierPriceWatch);
   refresh(itemId);
   return firstCheck.ok

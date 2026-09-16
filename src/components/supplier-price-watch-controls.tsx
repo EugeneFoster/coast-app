@@ -25,7 +25,8 @@ export function CreateSupplierPriceWatchForm({ itemId, sku }: { itemId: string; 
     <form action={action} className="mt-4 space-y-3">
       <label className="block text-xs text-graph">
         Supplier catalogue
-        <select name="supplier_code" defaultValue="marinepartssupply" className="mt-1 block w-full rounded border border-rule bg-canvas px-3 py-2 text-sm text-ink">
+        <select name="supplier_code" required defaultValue="" className="mt-1 block w-full rounded border border-rule bg-canvas px-3 py-2 text-sm text-ink">
+          <option value="" disabled>Select the supplier used for this item</option>
           <option value="marinepartssupply">Marine Parts Supply</option>
           <option value="westernmarine">Western Marine</option>
         </select>
