@@ -171,22 +171,16 @@ export default async function SupplierPriceAlertsPage() {
         </p>
       )}
 
-      <div className="space-y-3">
-        <div className="rounded-[4px] border border-rule bg-paper p-4">
-          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Supplier increases</p>
-          <p className="mt-2 font-display text-[28px] leading-none text-ink">{increases.length}</p>
-          <p className="mt-2 text-xs text-graph">Changed since previous check</p>
-        </div>
-        <div className="rounded-[4px] border border-rule bg-paper p-4">
-          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Initial SRP reviews</p>
-          <p className="mt-2 font-display text-[28px] leading-none text-ink">{firstReviews.length}</p>
-          <p className="mt-2 text-xs text-graph">Not a new supplier increase</p>
-        </div>
-        <div className={`rounded-[4px] border bg-paper p-4 ${reviewCount ? "border-amber-500/70" : "border-rule"}`}>
-          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Check item / unit</p>
-          <p className="mt-2 font-display text-[28px] leading-none text-ink">{reviewCount}</p>
-          <p className="mt-2 text-xs text-graph">Unusual jump within open alerts</p>
-        </div>
+      <div className={`divide-y rounded-[4px] border bg-paper ${reviewCount ? "border-amber-500/70 divide-amber-500/30" : "border-rule divide-rule"}`}>
+        {[
+          { label: "Supplier increases", count: increases.length, note: "Changed since previous check" },
+          { label: "Initial SRP reviews", count: firstReviews.length, note: "First CAD comparison" },
+          { label: "Check item / unit", count: reviewCount, note: "Package or SKU verification needed" },
+        ].map(({ label, count, note }) => <div key={label} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-4 py-2.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-graph">{label}</span>
+          <span className="ml-auto text-xs text-graph">{note}</span>
+          <strong className="min-w-6 text-right font-display text-xl font-medium leading-none text-ink">{count}</strong>
+        </div>)}
       </div>
 
       <section aria-labelledby="supplier-increases-heading">
