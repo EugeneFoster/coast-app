@@ -51,8 +51,7 @@ update public.supplier_price_alerts a set
 from public.supplier_price_watches w
 where a.watch_id = w.id and a.status = 'open' and a.package_units is null
   and w.supplier_units_per_pack is null
-  and a.current_selling_price > 0 and a.list_price >= a.current_selling_price * 3
-  and (a.dealer_cost is null or a.dealer_cost > a.current_selling_price);
+  and a.current_selling_price > 0 and a.list_price >= a.current_selling_price * 3;
 
 create or replace function public.record_supplier_price_check(
   p_watch_id uuid, p_part_number text, p_supplier_sku text,
@@ -94,8 +93,7 @@ begin
   v_factor := case when lower(btrim(v_item.unit)) in ('ea', 'each')
     then coalesce(v_watch.supplier_units_per_pack, 1) else 1 end;
   v_unverified := coalesce(v_watch.supplier_units_per_pack is null
-    and v_item.selling_price > 0 and p_list_price >= v_item.selling_price * 3
-    and (p_dealer_cost is null or p_dealer_cost > v_item.selling_price), false);
+    and v_item.selling_price > 0 and p_list_price >= v_item.selling_price * 3, false);
   v_cost_increased := v_watch.last_checked_at is not null and v_watch.last_dealer_cost is not null
     and p_dealer_cost is not null and p_dealer_cost > v_watch.last_dealer_cost;
   v_list_increased := v_watch.last_checked_at is not null and v_watch.last_list_price is not null

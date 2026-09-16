@@ -28,7 +28,7 @@ export function packageEvidence(supplier: string, partNumber: string, descriptio
   return { units, source: "Marine Parts Supply dealer catalogue description" };
 }
 
-export function suspiciousPackageDifference(currentSell: number | null, dealerCost: number | null, listPrice: number | null) {
+export function suspiciousPackageDifference(currentSell: number | null, listPrice: number | null) {
   if (currentSell === null || listPrice === null || currentSell <= 0) return false;
-  return listPrice >= currentSell * 3 && (dealerCost === null || dealerCost > currentSell);
+  return listPrice >= currentSell * 3;
 }

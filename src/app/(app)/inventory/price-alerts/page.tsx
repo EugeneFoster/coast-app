@@ -63,7 +63,7 @@ function AlertCard({ alert, canManage }: { alert: AlertRow; canManage: boolean }
   const supplier = alert.supplier_price_watches;
   const unit = stock?.unit ?? "ea";
   const isUnverified = alert.pack_check_required ||
-    (alert.package_units === null && suspiciousPackageDifference(alert.current_selling_price, alert.dealer_cost, alert.list_price));
+    (alert.package_units === null && suspiciousPackageDifference(alert.current_selling_price, alert.list_price));
 
   return (
     <article className={`rounded-[4px] border bg-paper p-4 md:p-5 ${needsReview || isUnverified ? "border-amber-500/70" : "border-rule"}`}>
