@@ -22,7 +22,6 @@ type NavItem = {
   href: string;
   label: string;
   icon: DesignIconName;
-  badge?: string;
   permission?: (profile: Profile) => boolean;
 };
 
@@ -41,7 +40,6 @@ const navGroups: Array<{ title: string; items: NavItem[] }> = [
       { href: "/paint-yard", label: "Paint yard", icon: "droplet", permission: (p) => canViewPaintYard(p.role) },
       { href: "/schedule", label: "Team schedule", icon: "users", permission: (p) => canManageOperations(p.role) },
       { href: "/inventory", label: "Inventory", icon: "package", permission: (p) => canViewInventory(p.role) },
-      { href: "/inventory/price-alerts", label: "Price alerts", icon: "alert", permission: (p) => canViewPurchasing(p.role) },
     ],
   },
   {
@@ -106,7 +104,7 @@ function Brand({ compact = false, mobile = false }: { compact?: boolean; mobile?
   );
 }
 
-function VisibleNav({ profile, priceAlertCount, compact = false, onNavigate }: { profile: Profile; priceAlertCount: number; compact?: boolean; onNavigate?: () => void }) {
+function VisibleNav({ profile, compact = false, onNavigate }: { profile: Profile; compact?: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
   const railHrefs = new Set(["/projects", "/my-day", "/work-orders", "/paint-yard", "/inventory", "/sales", "/chat"]);
   return (
@@ -133,7 +131,6 @@ function VisibleNav({ profile, priceAlertCount, compact = false, onNavigate }: {
                   {active && <span className="absolute left-0 top-1/2 h-[22px] w-[3px] -translate-y-1/2 bg-weld" />}
                   <DesignIcon name={item.icon} size={compact ? 20 : 18} />
                   <span className={compact ? "truncate" : "flex-1"}>{compact && item.label === "Work orders" ? "Work" : compact && item.label === "Paint yard" ? "Paint" : compact && item.label === "Inventory" ? "Stock" : compact && item.label === "Sales CRM" ? "Sales" : item.label}</span>
-                  {!compact && (item.badge || (item.href === "/inventory/price-alerts" && priceAlertCount > 0)) && <span className="rounded-[3px] border border-[#3a4049] px-1.5 py-0.5 font-mono text-[10px] text-sidebar-graph">{item.href === "/inventory/price-alerts" ? priceAlertCount : item.badge}</span>}
                 </Link>
               );
             })}
@@ -227,8 +224,8 @@ export function AppShell({ profile, priceAlertCount, children }: { profile: Prof
             <kbd className="rounded-[3px] border border-[#3a4049] px-1 font-mono text-[10px]">⌘K</kbd>
           </label>
         </form>
-        <div className="flex-1 overflow-y-auto py-4 xl:hidden"><VisibleNav profile={profile} priceAlertCount={priceAlertCount} compact /></div>
-        <div className="hidden flex-1 overflow-y-auto py-5 xl:block"><VisibleNav profile={profile} priceAlertCount={priceAlertCount} /></div>
+        <div className="flex-1 overflow-y-auto py-4 xl:hidden"><VisibleNav profile={profile} compact /></div>
+        <div className="hidden flex-1 overflow-y-auto py-5 xl:block"><VisibleNav profile={profile} /></div>
         <div className="hidden xl:block"><SidebarControls /></div>
         <div className="xl:hidden"><Account profile={profile} compact /></div>
         <div className="hidden xl:block"><Account profile={profile} /></div>
@@ -242,7 +239,7 @@ export function AppShell({ profile, priceAlertCount, children }: { profile: Prof
               <Brand />
               <button type="button" onClick={() => setMenuOpen(false)} className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-[4px] border border-sidebar-rule text-sidebar-graph" aria-label="Close navigation">×</button>
             </div>
-            <div className="flex-1 overflow-y-auto py-5"><VisibleNav profile={profile} priceAlertCount={priceAlertCount} onNavigate={() => setMenuOpen(false)} /></div>
+            <div className="flex-1 overflow-y-auto py-5"><VisibleNav profile={profile} onNavigate={() => setMenuOpen(false)} /></div>
             <SidebarControls />
             <Account profile={profile} />
           </aside>

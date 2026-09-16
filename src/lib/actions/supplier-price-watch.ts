@@ -12,8 +12,7 @@ export type PriceWatchActionState = { status: "idle" | "success" | "error"; mess
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function refresh(itemId?: string) {
-  revalidatePath("/inventory/price-alerts");
-  revalidatePath("/inventory");
+  revalidatePath("/inventory", "layout");
   if (itemId) revalidatePath(`/inventory/items/${itemId}`);
 }
 

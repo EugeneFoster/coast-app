@@ -14,7 +14,7 @@ const links = [
   },
 ];
 
-export function InventoryNav({ canViewPurchasing }: { canViewPurchasing: boolean }) {
+export function InventoryNav({ canViewPurchasing, priceAlertCount }: { canViewPurchasing: boolean; priceAlertCount: number | null }) {
   const pathname = usePathname();
 
   return (
@@ -34,6 +34,11 @@ export function InventoryNav({ canViewPurchasing }: { canViewPurchasing: boolean
               }`}
             >
               {link.label}
+              {link.href === "/inventory/price-alerts" && priceAlertCount !== null && (
+                <span className="ml-1.5 rounded-[3px] border border-rule px-1.5 py-0.5 font-mono text-[11px] leading-none text-graph" aria-label={`${priceAlertCount} available for review`}>
+                  {priceAlertCount}
+                </span>
+              )}
               {active && (
                 <span className="absolute bottom-[-1px] left-0 h-0.5 w-full bg-weld" />
               )}

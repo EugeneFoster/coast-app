@@ -156,7 +156,6 @@ export default async function SupplierPriceAlertsPage() {
   const increases = alerts.filter((alert) => alert.reason === "supplier_increase");
   const firstReviews = alerts.filter((alert) => alert.reason !== "supplier_increase")
     .sort((left, right) => Number(right.pack_check_required) - Number(left.pack_check_required));
-  const reviewCount = alerts.filter((alert) => alert.pack_check_required || requiresPriceAlertReview(alert.current_selling_price, alert.dealer_cost === null ? null : alert.dealer_cost / (alert.package_units ?? 1), alert.suggested_selling_price)).length;
 
   return (
     <main className="mt-5 max-w-6xl space-y-7">
@@ -171,30 +170,17 @@ export default async function SupplierPriceAlertsPage() {
         </p>
       )}
 
-      <div className={`divide-y rounded-[4px] border bg-paper ${reviewCount ? "border-amber-500/70 divide-amber-500/30" : "border-rule divide-rule"}`}>
-        {[
-          { label: "Supplier increases", count: increases.length, note: "Changed since previous check" },
-          { label: "Initial SRP reviews", count: firstReviews.length, note: "First CAD comparison" },
-          { label: "Check item / unit", count: reviewCount, note: "Package or SKU verification needed" },
-        ].map(({ label, count, note }) => <div key={label} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-4 py-2.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-graph">{label}</span>
-          <span className="ml-auto text-xs text-graph">{note}</span>
-          <strong className="min-w-6 text-right font-display text-xl font-medium leading-none text-ink">{count}</strong>
-        </div>)}
-      </div>
-
-      <section aria-labelledby="supplier-increases-heading">
+      {increases.length > 0 && <section aria-labelledby="supplier-increases-heading">
         <div className="flex items-baseline gap-2">
           <h3 id="supplier-increases-heading" className="font-display text-xl text-ink">Changed by supplier</h3>
           <span className="font-mono text-xs text-graph">{increases.length}</span>
         </div>
         <div className="mt-3 space-y-3">
           {increases.map((alert) => <AlertCard key={alert.id} alert={alert} canManage={canManage} />)}
-          {!increases.length && <p className="rounded-[4px] border border-rule bg-paper p-4 text-sm text-graph">No supplier price increases detected yet.</p>}
         </div>
-      </section>
+      </section>}
 
-      <section aria-labelledby="initial-reviews-heading">
+      {firstReviews.length > 0 && <section aria-labelledby="initial-reviews-heading">
         <div className="flex items-baseline gap-2">
           <h3 id="initial-reviews-heading" className="font-display text-xl text-ink">Initial price reviews</h3>
           <span className="font-mono text-xs text-graph">{firstReviews.length}</span>
@@ -202,9 +188,11 @@ export default async function SupplierPriceAlertsPage() {
         <p className="mt-1 text-xs text-graph">First comparison with CAD supplier SRP, not a newly increased supplier price.</p>
         <div className="mt-3 space-y-3">
           {firstReviews.map((alert) => <AlertCard key={alert.id} alert={alert} canManage={canManage} />)}
-          {!firstReviews.length && <p className="rounded-[4px] border border-rule bg-paper p-4 text-sm text-graph">No initial price reviews pending.</p>}
         </div>
-      </section>
+      </section>}
+      {!increases.length && !firstReviews.length && !alertResult.error && (
+        <p className="rounded-[4px] border border-rule bg-paper p-4 text-sm text-graph">No price alerts need review.</p>
+      )}
 
       <details className="rounded-[4px] border border-rule bg-paper p-4 md:p-5">
         <summary className="cursor-pointer select-none font-display text-lg text-ink marker:text-graph">Monitored stock · {watches.length} items</summary>
