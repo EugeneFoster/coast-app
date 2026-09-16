@@ -90,7 +90,7 @@ function AlertCard({ alert, canManage }: { alert: AlertRow; canManage: boolean }
         <span>On hand: <strong className="font-medium text-ink">{stock?.quantity_on_hand ?? "—"}</strong></span>
       </div>
 
-      {needsReview && <div role="alert" className="mt-4 rounded-[4px] border border-amber-500/60 bg-amber-50 p-3 text-sm text-ink dark:bg-amber-950/30">
+      {needsReview && <div role="alert" className="mt-4 rounded-[4px] border border-amber-500/60 bg-bone p-3 text-sm text-ink">
         <p className="font-medium">Check the SKU and selling unit before approving</p>
         <p className="mt-1 text-xs leading-5">Our current price is below dealer Net, and the proposal is {jump ? `about ${jump}×` : "at least 3×"} higher. A pack-size or item-mapping difference could explain this jump. Approval requires an explicit item check.</p>
       </div>}

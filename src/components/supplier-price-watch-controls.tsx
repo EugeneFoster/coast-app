@@ -124,7 +124,7 @@ export function PriceAlertDecisionButtons({ alertId, canApprove, suggestedPrice,
     decideSupplierPriceAlertAction.bind(null, alertId, "dismiss"), initial,
   );
   return (
-    <div className="mt-4 flex flex-wrap items-start gap-2">
+    <div className="mt-4 flex flex-wrap items-end gap-2">
       {canApprove && <form action={approveAction} className="max-w-full">
         {requiresReview && <label className="mb-3 flex max-w-xl items-start gap-2 text-xs leading-5 text-ink">
           <input type="checkbox" name="confirm_item_review" required className="mt-1" />
