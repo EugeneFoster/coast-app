@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { WesternMarineAdapter } from "@/lib/suppliers/adapters/western-marine";
 import { MarinePartsSupplyAdapter } from "@/lib/suppliers/adapters/marine-parts-supply";
 import { toSupplierError } from "@/lib/suppliers/errors";
+import { packageEvidence } from "@/lib/suppliers/package-pricing";
 import { isValidSearchQuery, normalizePartNumber, partNumbersMatch } from "@/lib/suppliers/normalize";
 import type { SupplierId, SupplierPartResult } from "@/lib/suppliers/types";
 
@@ -54,6 +55,25 @@ export async function checkSupplierPriceWatch(watch: SupplierPriceWatch) {
         result.currency !== watch.confirmed_currency) {
       throw new Error("Supplier price currency conflicts with the confirmed account currency.");
     }
+    const [{ data: item, error: itemError }, { data: stored, error: watchError }] = await Promise.all([
+      admin.from("inventory_items").select("sku, unit").eq("id", watch.inventory_item_id).single(),
+      admin.from("supplier_price_watches").select("supplier_units_per_pack").eq("id", watch.id).single(),
+    ]);
+    if (itemError || watchError || !item || !stored) throw new Error("Price-watch mapping could not be verified.");
+    const evidence = item.sku.toUpperCase() === result.partNumber.toUpperCase()
+      ? packageEvidence(watch.supplier_code, result.partNumber, result.description)
+      : null;
+    if (evidence && ["ea", "each"].includes(item.unit.trim().toLowerCase())) {
+      if (stored.supplier_units_per_pack !== null && Number(stored.supplier_units_per_pack) !== evidence.units) {
+        throw new Error("Supplier package size conflicts with the verified price-watch quantity.");
+      }
+      if (stored.supplier_units_per_pack === null) {
+        const { error: packageError } = await admin.from("supplier_price_watches")
+          .update({ supplier_units_per_pack: evidence.units, pack_source: evidence.source })
+          .eq("id", watch.id).is("supplier_units_per_pack", null);
+        if (packageError) throw new Error(packageError.message);
+      }
+    }
     const { data, error } = await admin.rpc("record_supplier_price_check", {
       p_watch_id: watch.id,
       p_part_number: result.partNumber,
@@ -68,7 +88,9 @@ export async function checkSupplierPriceWatch(watch: SupplierPriceWatch) {
   } catch (caught) {
     const message = caught instanceof Error &&
       (caught.message.startsWith("The supplier") ||
-        caught.message.startsWith("Supplier price currency"))
+        caught.message.startsWith("Supplier price currency") ||
+        caught.message.startsWith("Supplier package size") ||
+        caught.message.startsWith("Price-watch mapping"))
       ? caught.message
       : toSupplierError(watch.supplier_code, caught).userMessage;
     await admin.from("supplier_price_watches").update({

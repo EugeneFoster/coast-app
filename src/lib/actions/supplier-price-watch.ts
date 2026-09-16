@@ -185,17 +185,22 @@ export async function decideSupplierPriceAlertAction(
   if (!UUID_RE.test(alertId)) return { status: "error", message: "Invalid alert." };
   const supabase = await createClient();
   const { data: before } = await supabase.from("supplier_price_alerts")
-    .select("id, watch_id, inventory_item_id, status, dealer_cost, list_price, current_selling_price, suggested_selling_price, supplier_checked_at")
+    .select("id, watch_id, inventory_item_id, status, dealer_cost, list_price, package_units, pack_check_required, current_selling_price, suggested_selling_price, supplier_checked_at")
     .eq("id", alertId).maybeSingle();
   if (!before || before.status !== "open") {
     return { status: "error", message: "This alert is no longer open." };
   }
 
   if (decision === "approve") {
-    if (before.suggested_selling_price === null) {
-      return { status: "error", message: "Confirm CAD account currency before approving a price suggestion." };
+    if (before.pack_check_required) {
+      return { status: "error", message: "The supplier package quantity must be verified before approving a selling price." };
     }
-    if (requiresPriceAlertReview(before.current_selling_price, before.dealer_cost, before.suggested_selling_price) &&
+    if (before.suggested_selling_price === null) {
+      return { status: "error", message: "No verified per-unit CAD price proposal is available." };
+    }
+    if (requiresPriceAlertReview(before.current_selling_price,
+      before.dealer_cost === null ? null : before.dealer_cost / (before.package_units ?? 1),
+      before.suggested_selling_price) &&
         formData.get("confirm_item_review") !== "on") {
       return { status: "error", message: "Review this item's SKU and selling unit before approving the large price change." };
     }
@@ -206,11 +211,13 @@ export async function decideSupplierPriceAlertAction(
     const fresh = await checkSupplierPriceWatch(watch as SupplierPriceWatch);
     if (!fresh.ok) return { status: "error", message: fresh.message ?? "Supplier recheck failed." };
     const { data: after } = await supabase.from("supplier_price_alerts")
-      .select("status, dealer_cost, list_price, suggested_selling_price")
+      .select("status, dealer_cost, list_price, package_units, pack_check_required, suggested_selling_price")
       .eq("id", alertId).maybeSingle();
     if (!after || after.status !== "open" ||
         Number(after.dealer_cost) !== Number(before.dealer_cost) ||
         Number(after.list_price) !== Number(before.list_price) ||
+        Number(after.package_units) !== Number(before.package_units) ||
+        after.pack_check_required !== before.pack_check_required ||
         Number(after.suggested_selling_price) !== Number(before.suggested_selling_price)) {
       refresh(before.inventory_item_id);
       return { status: "error", message: "The supplier price or proposal changed. Review the updated alert before approving." };

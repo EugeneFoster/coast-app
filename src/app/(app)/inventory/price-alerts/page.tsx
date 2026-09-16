@@ -3,6 +3,7 @@ import { CheckSupplierPriceWatchButton, ConfirmPriceWatchCurrencyForm, ConfirmSu
 import { requirePurchasingViewer } from "@/lib/auth";
 import { canManageInventory } from "@/lib/employee-roles";
 import { requiresPriceAlertReview } from "@/lib/suppliers/price-alert-review";
+import { suspiciousPackageDifference } from "@/lib/suppliers/package-pricing";
 import { createClient } from "@/lib/supabase/server";
 
 type AlertRow = {
@@ -15,9 +16,11 @@ type AlertRow = {
   currency: string | null;
   current_selling_price: number | null;
   suggested_selling_price: number | null;
+  package_units: number | null;
+  pack_check_required: boolean;
   detected_at: string;
-  inventory_items: { id: string; sku: string; name: string; quantity_on_hand: number } | null;
-  supplier_price_watches: { id: string; supplier_code: string; query_part_number: string; confirmed_currency: string | null } | null;
+  inventory_items: { id: string; sku: string; name: string; unit: string; quantity_on_hand: number } | null;
+  supplier_price_watches: { id: string; supplier_code: string; query_part_number: string; confirmed_currency: string | null; pack_source: string | null } | null;
 };
 
 type WatchRow = {
@@ -30,7 +33,9 @@ type WatchRow = {
   last_currency: string | null;
   last_checked_at: string | null;
   last_error: string | null;
-  inventory_items: { id: string; sku: string; name: string; quantity_on_hand: number } | null;
+  supplier_units_per_pack: number | null;
+  pack_source: string | null;
+  inventory_items: { id: string; sku: string; name: string; unit: string; quantity_on_hand: number } | null;
 };
 
 function money(value: number | null, currency: string | null) {
@@ -48,16 +53,20 @@ function supplierName(code: string | undefined) {
 }
 
 function AlertCard({ alert, canManage }: { alert: AlertRow; canManage: boolean }) {
-  const needsReview = requiresPriceAlertReview(alert.current_selling_price, alert.dealer_cost, alert.suggested_selling_price);
+  const unitDealerCost = alert.dealer_cost === null ? null : alert.dealer_cost / (alert.package_units ?? 1);
+  const needsReview = requiresPriceAlertReview(alert.current_selling_price, unitDealerCost, alert.suggested_selling_price);
   const increase = alert.current_selling_price !== null && alert.suggested_selling_price !== null
     ? alert.suggested_selling_price - alert.current_selling_price : null;
   const jump = alert.current_selling_price !== null && alert.current_selling_price > 0 && alert.suggested_selling_price !== null
     ? Math.round(alert.suggested_selling_price / alert.current_selling_price) : null;
   const stock = alert.inventory_items;
   const supplier = alert.supplier_price_watches;
+  const unit = stock?.unit ?? "ea";
+  const isUnverified = alert.pack_check_required ||
+    (alert.package_units === null && suspiciousPackageDifference(alert.current_selling_price, alert.dealer_cost, alert.list_price));
 
   return (
-    <article className={`rounded-[4px] border bg-paper p-4 md:p-5 ${needsReview ? "border-amber-500/70" : "border-rule"}`}>
+    <article className={`rounded-[4px] border bg-paper p-4 md:p-5 ${needsReview || isUnverified ? "border-amber-500/70" : "border-rule"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           {stock ? <Link href={`/inventory/items/${stock.id}`} className="text-base font-medium leading-tight text-ink hover:text-weld-text">
@@ -70,17 +79,17 @@ function AlertCard({ alert, canManage }: { alert: AlertRow; canManage: boolean }
         </span>
       </div>
 
-      <div className="mt-4 grid items-center gap-3 rounded-[4px] border border-rule bg-bone p-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:p-4">
+      <div className="mt-4 grid gap-3 rounded-[4px] border border-rule bg-bone p-3 sm:p-4">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Our price now</p>
-          <p className="mt-1 font-display text-[26px] font-medium leading-none text-ink">{money(alert.current_selling_price, "CAD")}</p>
+          <p className="mt-1 font-display text-[26px] font-medium leading-none text-ink">{money(alert.current_selling_price, "CAD")}<span className="ml-1 font-sans text-xs text-graph">/{unit}</span></p>
         </div>
-        <span className="hidden font-display text-xl text-graph sm:block" aria-hidden>→</span>
-        <div className="border-t border-rule pt-3 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+        <div className="border-t border-rule pt-3">
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Suggested new price</p>
           <p className="mt-1 font-display text-[28px] font-medium leading-none text-weld-text">
-            {alert.suggested_selling_price === null ? "Pending currency" : money(alert.suggested_selling_price, "CAD")}
+            {alert.suggested_selling_price === null ? (isUnverified ? "Check package size" : "Pending currency") : money(alert.suggested_selling_price, "CAD")}
           </p>
+          {alert.suggested_selling_price !== null && <p className="mt-1 text-xs text-graph">per {unit}</p>}
           {increase !== null && <p className="mt-2 font-mono text-xs text-graph">+{money(increase, "CAD")}</p>}
         </div>
       </div>
@@ -90,28 +99,39 @@ function AlertCard({ alert, canManage }: { alert: AlertRow; canManage: boolean }
         <span>On hand: <strong className="font-medium text-ink">{stock?.quantity_on_hand ?? "—"}</strong></span>
       </div>
 
-      {needsReview && <div role="alert" className="mt-4 rounded-[4px] border border-amber-500/60 bg-bone p-3 text-sm text-ink">
+      {alert.package_units !== null && <p className="mt-3 rounded-[4px] border border-rule bg-bone p-3 text-xs text-ink">
+        Dealer package: <strong>{alert.package_units} pieces</strong>. Net {money(alert.dealer_cost, alert.currency)} ÷ {alert.package_units} = <strong>{money(unitDealerCost, alert.currency)}/{unit}</strong>;
+        SRP {money(alert.list_price, alert.currency)} ÷ {alert.package_units} = <strong>{money(alert.list_price === null ? null : alert.list_price / alert.package_units, alert.currency)}/{unit}</strong>.
+        {supplier?.pack_source?.startsWith("https://") && <a href={supplier.pack_source} target="_blank" rel="noopener noreferrer" className="ml-2 text-weld-text underline">Package source ↗</a>}
+      </p>}
+
+      {isUnverified && <div role="alert" className="mt-4 rounded-[4px] border border-amber-500/60 bg-bone p-3 text-sm text-ink">
+        <p className="font-medium">Package quantity not verified — approval blocked</p>
+        <p className="mt-1 text-xs leading-5">The dealer price may be for a whole package while this stock item is sold per {unit}. Verify the supplier pack count before comparing prices.</p>
+      </div>}
+
+      {needsReview && !isUnverified && <div role="alert" className="mt-4 rounded-[4px] border border-amber-500/60 bg-bone p-3 text-sm text-ink">
         <p className="font-medium">Check the SKU and selling unit before approving</p>
         <p className="mt-1 text-xs leading-5">Our current price is below dealer Net, and the proposal is {jump ? `about ${jump}×` : "at least 3×"} higher. A pack-size or item-mapping difference could explain this jump. Approval requires an explicit item check.</p>
       </div>}
 
       <details className="mt-4 border-t border-rule pt-3 text-xs text-graph">
         <summary className="cursor-pointer select-none font-medium text-ink marker:text-graph">Supplier prices and calculation</summary>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+        <dl className="mt-3 grid gap-3">
           <div><dt className="font-mono text-[10px] uppercase tracking-[0.12em]">Dealer Net</dt><dd className="mt-1 font-mono text-sm text-ink">{money(alert.previous_dealer_cost, alert.currency)} → {money(alert.dealer_cost, alert.currency)}</dd></div>
           <div><dt className="font-mono text-[10px] uppercase tracking-[0.12em]">Supplier SRP</dt><dd className="mt-1 font-mono text-sm text-ink">{money(alert.previous_list_price, alert.currency)} → {money(alert.list_price, alert.currency)}</dd></div>
         </dl>
-        <p className="mt-3 leading-5">Suggestion is the greater of the current price plus any dealer Net increase or the supplier SRP. Review market fit and selling units before approval. Historical purchase cost does not change.</p>
+        <p className="mt-3 leading-5">Dealer Net and SRP are divided by the verified package quantity before comparing with our per-{unit} selling price. The proposal protects the current gross-profit amount. Historical purchase cost does not change.</p>
         <p className="mt-2">Checked {date(alert.detected_at)}</p>
       </details>
 
-      {alert.suggested_selling_price === null && !supplier?.confirmed_currency && canManage && (
+      {alert.suggested_selling_price === null && !isUnverified && !supplier?.confirmed_currency && canManage && (
         <div className="mt-3 rounded-[4px] border border-rule bg-bone p-3">
           <p className="text-xs text-graph">Confirm the dealer account currency to enable a CAD proposal.</p>
           {supplier && <ConfirmPriceWatchCurrencyForm watchId={supplier.id} />}
         </div>
       )}
-      {canManage && <PriceAlertDecisionButtons alertId={alert.id} canApprove={alert.suggested_selling_price !== null} suggestedPrice={alert.suggested_selling_price} requiresReview={needsReview} />}
+      {canManage && <PriceAlertDecisionButtons alertId={alert.id} canApprove={!isUnverified && alert.suggested_selling_price !== null} suggestedPrice={alert.suggested_selling_price} requiresReview={needsReview} />}
     </article>
   );
 }
@@ -122,10 +142,10 @@ export default async function SupplierPriceAlertsPage() {
   const supabase = await createClient();
   const [alertResult, watchResult, currencyResult] = await Promise.all([
     supabase.from("supplier_price_alerts")
-      .select("id, reason, previous_dealer_cost, dealer_cost, previous_list_price, list_price, currency, current_selling_price, suggested_selling_price, detected_at, inventory_items(id, sku, name, quantity_on_hand), supplier_price_watches(id, supplier_code, query_part_number, confirmed_currency)")
+      .select("id, reason, previous_dealer_cost, dealer_cost, previous_list_price, list_price, currency, current_selling_price, suggested_selling_price, package_units, pack_check_required, detected_at, inventory_items(id, sku, name, unit, quantity_on_hand), supplier_price_watches(id, supplier_code, query_part_number, confirmed_currency, pack_source)")
       .eq("status", "open").order("detected_at", { ascending: false }).limit(100),
     supabase.from("supplier_price_watches")
-      .select("id, supplier_code, query_part_number, confirmed_currency, last_dealer_cost, last_list_price, last_currency, last_checked_at, last_error, inventory_items(id, sku, name, quantity_on_hand)")
+      .select("id, supplier_code, query_part_number, confirmed_currency, last_dealer_cost, last_list_price, last_currency, last_checked_at, last_error, supplier_units_per_pack, pack_source, inventory_items(id, sku, name, unit, quantity_on_hand)")
       .eq("active", true).order("created_at", { ascending: false }).limit(100),
     supabase.from("supplier_price_currency_settings")
       .select("supplier_code, currency, confirmed_at"),
@@ -135,9 +155,8 @@ export default async function SupplierPriceAlertsPage() {
   const currencies = currencyResult.data ?? [];
   const increases = alerts.filter((alert) => alert.reason === "supplier_increase");
   const firstReviews = alerts.filter((alert) => alert.reason !== "supplier_increase")
-    .sort((left, right) => Number(requiresPriceAlertReview(right.current_selling_price, right.dealer_cost, right.suggested_selling_price)) -
-      Number(requiresPriceAlertReview(left.current_selling_price, left.dealer_cost, left.suggested_selling_price)));
-  const reviewCount = alerts.filter((alert) => requiresPriceAlertReview(alert.current_selling_price, alert.dealer_cost, alert.suggested_selling_price)).length;
+    .sort((left, right) => Number(right.pack_check_required) - Number(left.pack_check_required));
+  const reviewCount = alerts.filter((alert) => alert.pack_check_required || requiresPriceAlertReview(alert.current_selling_price, alert.dealer_cost === null ? null : alert.dealer_cost / (alert.package_units ?? 1), alert.suggested_selling_price)).length;
 
   return (
     <main className="mt-5 max-w-6xl space-y-7">
@@ -152,7 +171,7 @@ export default async function SupplierPriceAlertsPage() {
         </p>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="space-y-3">
         <div className="rounded-[4px] border border-rule bg-paper p-4">
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Supplier increases</p>
           <p className="mt-2 font-display text-[28px] leading-none text-ink">{increases.length}</p>
@@ -187,21 +206,21 @@ export default async function SupplierPriceAlertsPage() {
           <span className="font-mono text-xs text-graph">{firstReviews.length}</span>
         </div>
         <p className="mt-1 text-xs text-graph">First comparison with CAD supplier SRP, not a newly increased supplier price.</p>
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <div className="mt-3 space-y-3">
           {firstReviews.map((alert) => <AlertCard key={alert.id} alert={alert} canManage={canManage} />)}
-          {!firstReviews.length && <p className="rounded-[4px] border border-rule bg-paper p-4 text-sm text-graph lg:col-span-2">No initial price reviews pending.</p>}
+          {!firstReviews.length && <p className="rounded-[4px] border border-rule bg-paper p-4 text-sm text-graph">No initial price reviews pending.</p>}
         </div>
       </section>
 
       <details className="rounded-[4px] border border-rule bg-paper p-4 md:p-5">
         <summary className="cursor-pointer select-none font-display text-lg text-ink marker:text-graph">Monitored stock · {watches.length} items</summary>
         <p className="mt-2 text-xs text-graph">Exact supplier part-code matches. Open an item to change or add its watch.</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="mt-4 space-y-3">
           {watches.map((watch) => (
             <article key={watch.id} className="rounded-[4px] border border-rule bg-bone p-3">
               {watch.inventory_items ? <Link href={`/inventory/items/${watch.inventory_items.id}`} className="font-medium text-ink hover:text-weld-text">{watch.inventory_items.name} ↗</Link> : <span className="font-medium text-ink">Stock item</span>}
               <p className="mt-1 font-mono text-[11px] text-graph">{watch.inventory_items?.sku} · {supplierName(watch.supplier_code)} {watch.query_part_number}</p>
-              <p className="mt-2 text-xs text-graph">Net {money(watch.last_dealer_cost, watch.last_currency)} · SRP {money(watch.last_list_price, watch.last_currency)}</p>
+              <p className="mt-2 text-xs text-graph">Net {money(watch.last_dealer_cost, watch.last_currency)} · SRP {money(watch.last_list_price, watch.last_currency)}{watch.supplier_units_per_pack && ` · package of ${watch.supplier_units_per_pack}`}</p>
               <p className="mt-1 text-xs text-graph">Checked {date(watch.last_checked_at)}</p>
               {watch.last_error && <p role="alert" className="mt-2 text-xs text-weld-text">Check failed: {watch.last_error}</p>}
               {canManage && <div className="mt-3"><CheckSupplierPriceWatchButton watchId={watch.id} /></div>}
@@ -218,7 +237,7 @@ export default async function SupplierPriceAlertsPage() {
             return `${code === "marinepartssupply" ? "MPS" : "Western Marine"} ${setting?.currency ?? "unconfirmed"}`;
           }).join(" · ")}</span>
         </summary>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="mt-4 space-y-3">
           {(["marinepartssupply", "westernmarine"] as const).map((supplierCode) => {
             const setting = currencies.find((row) => row.supplier_code === supplierCode);
             return <div key={supplierCode} className="rounded-[4px] border border-rule bg-bone p-4">
