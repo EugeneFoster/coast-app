@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireInventoryManager } from "@/lib/auth";
 import { checkSupplierPriceWatch, findCatalogueMatch, priceWatchAdapters, type SupplierPriceWatch } from "@/lib/suppliers/price-watch";
+import { requiresPriceAlertReview } from "@/lib/suppliers/price-alert-review";
 import { toSupplierError } from "@/lib/suppliers/errors";
 import { isValidSearchQuery, normalizePartNumber, partNumbersMatch } from "@/lib/suppliers/normalize";
 import { createClient } from "@/lib/supabase/server";
@@ -178,12 +179,13 @@ export async function decideSupplierPriceAlertAction(
   alertId: string,
   decision: "approve" | "dismiss",
   _previous: PriceWatchActionState,
+  formData: FormData,
 ): Promise<PriceWatchActionState> {
   await requireInventoryManager();
   if (!UUID_RE.test(alertId)) return { status: "error", message: "Invalid alert." };
   const supabase = await createClient();
   const { data: before } = await supabase.from("supplier_price_alerts")
-    .select("id, watch_id, inventory_item_id, status, dealer_cost, list_price, suggested_selling_price, supplier_checked_at")
+    .select("id, watch_id, inventory_item_id, status, dealer_cost, list_price, current_selling_price, suggested_selling_price, supplier_checked_at")
     .eq("id", alertId).maybeSingle();
   if (!before || before.status !== "open") {
     return { status: "error", message: "This alert is no longer open." };
@@ -192,6 +194,10 @@ export async function decideSupplierPriceAlertAction(
   if (decision === "approve") {
     if (before.suggested_selling_price === null) {
       return { status: "error", message: "Confirm CAD account currency before approving a price suggestion." };
+    }
+    if (requiresPriceAlertReview(before.current_selling_price, before.dealer_cost, before.suggested_selling_price) &&
+        formData.get("confirm_item_review") !== "on") {
+      return { status: "error", message: "Review this item's SKU and selling unit before approving the large price change." };
     }
     const { data: watch } = await supabase.from("supplier_price_watches")
       .select("id, inventory_item_id, supplier_code, query_part_number, expected_part_number, expected_supplier_sku, confirmed_currency, active, last_attempted_at")

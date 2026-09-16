@@ -116,7 +116,7 @@ export function ConfirmSupplierAccountCurrencyForm({ supplierCode }: { supplierC
   );
 }
 
-export function PriceAlertDecisionButtons({ alertId, canApprove }: { alertId: string; canApprove: boolean }) {
+export function PriceAlertDecisionButtons({ alertId, canApprove, suggestedPrice, requiresReview }: { alertId: string; canApprove: boolean; suggestedPrice: number | null; requiresReview: boolean }) {
   const [approveState, approveAction, approvePending] = useActionState(
     decideSupplierPriceAlertAction.bind(null, alertId, "approve"), initial,
   );
@@ -125,9 +125,13 @@ export function PriceAlertDecisionButtons({ alertId, canApprove }: { alertId: st
   );
   return (
     <div className="mt-4 flex flex-wrap items-start gap-2">
-      {canApprove && <form action={approveAction}>
+      {canApprove && <form action={approveAction} className="max-w-full">
+        {requiresReview && <label className="mb-3 flex max-w-xl items-start gap-2 text-xs leading-5 text-ink">
+          <input type="checkbox" name="confirm_item_review" required className="mt-1" />
+          I checked that the stock SKU and selling unit match this dealer listing.
+        </label>}
         <button type="submit" disabled={approvePending} className="btn-primary px-4 py-2 text-xs disabled:opacity-50">
-          {approvePending ? "Rechecking…" : "Approve selling price"}
+          {approvePending ? "Rechecking…" : suggestedPrice === null ? "Approve selling price" : `Approve ${new Intl.NumberFormat("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(suggestedPrice)} CAD`}
         </button>
         <ActionMessage state={approveState} />
       </form>}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CheckSupplierPriceWatchButton, ConfirmPriceWatchCurrencyForm, ConfirmSupplierAccountCurrencyForm, PriceAlertDecisionButtons } from "@/components/supplier-price-watch-controls";
 import { requirePurchasingViewer } from "@/lib/auth";
 import { canManageInventory } from "@/lib/employee-roles";
+import { requiresPriceAlertReview } from "@/lib/suppliers/price-alert-review";
 import { createClient } from "@/lib/supabase/server";
 
 type AlertRow = {
@@ -38,6 +39,83 @@ function money(value: number | null, currency: string | null) {
   return currency ? `${formatted} ${currency}` : `${formatted} (currency unconfirmed)`;
 }
 
+function date(value: string | null) {
+  return value ? new Date(value).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" }) : "Not checked yet";
+}
+
+function supplierName(code: string | undefined) {
+  return code === "marinepartssupply" ? "Marine Parts Supply" : "Western Marine";
+}
+
+function AlertCard({ alert, canManage }: { alert: AlertRow; canManage: boolean }) {
+  const needsReview = requiresPriceAlertReview(alert.current_selling_price, alert.dealer_cost, alert.suggested_selling_price);
+  const increase = alert.current_selling_price !== null && alert.suggested_selling_price !== null
+    ? alert.suggested_selling_price - alert.current_selling_price : null;
+  const jump = alert.current_selling_price !== null && alert.current_selling_price > 0 && alert.suggested_selling_price !== null
+    ? Math.round(alert.suggested_selling_price / alert.current_selling_price) : null;
+  const stock = alert.inventory_items;
+  const supplier = alert.supplier_price_watches;
+
+  return (
+    <article className={`rounded-[4px] border bg-paper p-4 md:p-5 ${needsReview ? "border-amber-500/70" : "border-rule"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          {stock ? <Link href={`/inventory/items/${stock.id}`} className="text-base font-medium leading-tight text-ink hover:text-weld-text">
+            {stock.name} <span aria-hidden>↗</span>
+          </Link> : <span className="text-base font-medium text-ink">Stock item</span>}
+          <p className="mt-1 font-mono text-[11px] text-graph">{stock?.sku ?? "No SKU"} · {supplierName(supplier?.supplier_code)} {supplier?.query_part_number}</p>
+        </div>
+        <span className={`shrink-0 rounded-[3px] border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] ${alert.reason === "supplier_increase" ? "border-weld/50 text-weld-text" : "border-rule text-graph"}`}>
+          {alert.reason === "supplier_increase" ? "Supplier increased price" : "Initial SRP review"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid items-center gap-3 rounded-[4px] border border-rule bg-bone p-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:p-4">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Our price now</p>
+          <p className="mt-1 font-display text-[26px] font-medium leading-none text-ink">{money(alert.current_selling_price, "CAD")}</p>
+        </div>
+        <span className="hidden font-display text-xl text-graph sm:block" aria-hidden>→</span>
+        <div className="border-t border-rule pt-3 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Suggested new price</p>
+          <p className="mt-1 font-display text-[28px] font-medium leading-none text-weld-text">
+            {alert.suggested_selling_price === null ? "Pending currency" : money(alert.suggested_selling_price, "CAD")}
+          </p>
+          {increase !== null && <p className="mt-2 font-mono text-xs text-graph">+{money(increase, "CAD")}</p>}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-graph">
+        <span>{alert.reason === "supplier_increase" ? "Dealer Net or SRP increased since the last check." : "First CAD comparison: our price is below supplier SRP. This is not a new supplier increase."}</span>
+        <span>On hand: <strong className="font-medium text-ink">{stock?.quantity_on_hand ?? "—"}</strong></span>
+      </div>
+
+      {needsReview && <div role="alert" className="mt-4 rounded-[4px] border border-amber-500/60 bg-amber-50 p-3 text-sm text-ink dark:bg-amber-950/30">
+        <p className="font-medium">Check the SKU and selling unit before approving</p>
+        <p className="mt-1 text-xs leading-5">Our current price is below dealer Net, and the proposal is {jump ? `about ${jump}×` : "at least 3×"} higher. A pack-size or item-mapping difference could explain this jump. Approval requires an explicit item check.</p>
+      </div>}
+
+      <details className="mt-4 border-t border-rule pt-3 text-xs text-graph">
+        <summary className="cursor-pointer select-none font-medium text-ink marker:text-graph">Supplier prices and calculation</summary>
+        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div><dt className="font-mono text-[10px] uppercase tracking-[0.12em]">Dealer Net</dt><dd className="mt-1 font-mono text-sm text-ink">{money(alert.previous_dealer_cost, alert.currency)} → {money(alert.dealer_cost, alert.currency)}</dd></div>
+          <div><dt className="font-mono text-[10px] uppercase tracking-[0.12em]">Supplier SRP</dt><dd className="mt-1 font-mono text-sm text-ink">{money(alert.previous_list_price, alert.currency)} → {money(alert.list_price, alert.currency)}</dd></div>
+        </dl>
+        <p className="mt-3 leading-5">Suggestion is the greater of the current price plus any dealer Net increase or the supplier SRP. Review market fit and selling units before approval. Historical purchase cost does not change.</p>
+        <p className="mt-2">Checked {date(alert.detected_at)}</p>
+      </details>
+
+      {alert.suggested_selling_price === null && !supplier?.confirmed_currency && canManage && (
+        <div className="mt-3 rounded-[4px] border border-rule bg-bone p-3">
+          <p className="text-xs text-graph">Confirm the dealer account currency to enable a CAD proposal.</p>
+          {supplier && <ConfirmPriceWatchCurrencyForm watchId={supplier.id} />}
+        </div>
+      )}
+      {canManage && <PriceAlertDecisionButtons alertId={alert.id} canApprove={alert.suggested_selling_price !== null} suggestedPrice={alert.suggested_selling_price} requiresReview={needsReview} />}
+    </article>
+  );
+}
+
 export default async function SupplierPriceAlertsPage() {
   const { profile } = await requirePurchasingViewer();
   const canManage = canManageInventory(profile.role);
@@ -55,88 +133,102 @@ export default async function SupplierPriceAlertsPage() {
   const alerts = (alertResult.data ?? []) as unknown as AlertRow[];
   const watches = (watchResult.data ?? []) as unknown as WatchRow[];
   const currencies = currencyResult.data ?? [];
+  const increases = alerts.filter((alert) => alert.reason === "supplier_increase");
+  const firstReviews = alerts.filter((alert) => alert.reason !== "supplier_increase")
+    .sort((left, right) => Number(requiresPriceAlertReview(right.current_selling_price, right.dealer_cost, right.suggested_selling_price)) -
+      Number(requiresPriceAlertReview(left.current_selling_price, left.dealer_cost, left.suggested_selling_price)));
+  const reviewCount = alerts.filter((alert) => requiresPriceAlertReview(alert.current_selling_price, alert.dealer_cost, alert.suggested_selling_price)).length;
 
   return (
-    <main className="mt-5 max-w-6xl space-y-8">
-      <div>
+    <main className="mt-5 max-w-6xl space-y-7">
+      <header>
         <h2 className="font-display text-2xl font-medium text-ink">Supplier price alerts</h2>
-        <p className="mt-1 max-w-3xl text-sm text-graph">
-          Supplier Net/SRP changes are checked against watched stock. Exact MPS SKU matches are enrolled gradually by the hourly monitor; Western Marine can be linked from an item page. A selling-price suggestion needs human approval; historical purchase cost and average cost never change here.
-        </p>
-      </div>
+        <p className="mt-1 text-sm text-graph">Review proposed CAD selling prices. Nothing changes on stock until you approve it.</p>
+      </header>
+
       {(alertResult.error || watchResult.error || currencyResult.error) && (
         <p role="alert" className="rounded border border-weld/30 bg-weld/5 p-4 text-sm text-ink">
           Price monitoring tables are not ready. Apply the supplier-price migration before using this page.
         </p>
       )}
-      <section className="grid gap-3 md:grid-cols-2">
-        {(["marinepartssupply", "westernmarine"] as const).map((supplierCode) => {
-          const setting = currencies.find((row) => row.supplier_code === supplierCode);
-          return <div key={supplierCode} className="rounded border border-rule bg-paper p-4">
-            <h3 className="font-medium text-ink">{supplierCode === "marinepartssupply" ? "Marine Parts Supply" : "Western Marine"} account currency</h3>
-            <p className="mt-1 text-xs text-graph">{setting ? `${setting.currency} verified ${new Date(setting.confirmed_at).toLocaleString("en-CA")}` : "Not confirmed. Price changes are tracked, but CAD selling-price suggestions are withheld."}</p>
-            {!setting && canManage && <ConfirmSupplierAccountCurrencyForm supplierCode={supplierCode} />}
-          </div>;
-        })}
-      </section>
-      <section>
-        <h3 className="font-display text-xl text-ink">Open alerts <span className="font-mono text-sm text-graph">{alerts.length}</span></h3>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-[4px] border border-rule bg-paper p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Supplier increases</p>
+          <p className="mt-2 font-display text-[28px] leading-none text-ink">{increases.length}</p>
+          <p className="mt-2 text-xs text-graph">Changed since previous check</p>
+        </div>
+        <div className="rounded-[4px] border border-rule bg-paper p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Initial SRP reviews</p>
+          <p className="mt-2 font-display text-[28px] leading-none text-ink">{firstReviews.length}</p>
+          <p className="mt-2 text-xs text-graph">Not a new supplier increase</p>
+        </div>
+        <div className={`rounded-[4px] border bg-paper p-4 ${reviewCount ? "border-amber-500/70" : "border-rule"}`}>
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-graph">Check item / unit</p>
+          <p className="mt-2 font-display text-[28px] leading-none text-ink">{reviewCount}</p>
+          <p className="mt-2 text-xs text-graph">Unusual jump within open alerts</p>
+        </div>
+      </div>
+
+      <section aria-labelledby="supplier-increases-heading">
+        <div className="flex items-baseline gap-2">
+          <h3 id="supplier-increases-heading" className="font-display text-xl text-ink">Changed by supplier</h3>
+          <span className="font-mono text-xs text-graph">{increases.length}</span>
+        </div>
         <div className="mt-3 space-y-3">
-          {alerts.map((alert) => (
-            <article key={alert.id} className="rounded border border-weld/30 bg-paper p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <Link href={`/inventory/items/${alert.inventory_items?.id}`} className="font-medium text-ink hover:text-weld-text">
-                    {alert.inventory_items?.name ?? "Stock item"} →
-                  </Link>
-                  <p className="mt-1 font-mono text-xs text-graph">{alert.inventory_items?.sku} · {alert.supplier_price_watches?.supplier_code === "marinepartssupply" ? "Marine Parts Supply" : "Western Marine"} {alert.supplier_price_watches?.query_part_number}</p>
-                </div>
-                <p className="text-xs text-graph">{new Date(alert.detected_at).toLocaleString("en-CA")}</p>
-              </div>
-              <p className="mt-3 text-sm text-ink">
-                {alert.reason === "below_current_srp" ? "Initial price check: our item is below current SRP." : "Supplier Net and/or SRP increased."}
-              </p>
-              <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-5">
-                <div><dt className="text-graph">Dealer Net</dt><dd className="mt-1 font-mono text-ink">{money(alert.previous_dealer_cost, alert.currency)} → {money(alert.dealer_cost, alert.currency)}</dd></div>
-                <div><dt className="text-graph">Supplier SRP</dt><dd className="mt-1 font-mono text-ink">{money(alert.previous_list_price, alert.currency)} → {money(alert.list_price, alert.currency)}</dd></div>
-                <div><dt className="text-graph">Our sell</dt><dd className="mt-1 font-mono text-ink">{money(alert.current_selling_price, "CAD")}</dd></div>
-                <div><dt className="text-graph">Suggested sell</dt><dd className="mt-1 font-mono text-ink">{money(alert.suggested_selling_price, alert.suggested_selling_price === null ? null : "CAD")}</dd></div>
-                <div><dt className="text-graph">On hand</dt><dd className="mt-1 font-mono text-ink">{alert.inventory_items?.quantity_on_hand ?? "—"}</dd></div>
-              </dl>
-              <p className="mt-3 text-xs text-graph">
-                Suggestion = greater of current sell + supplier Net increase or current SRP. This protects the current gross-profit amount; review market fit before approving.
-              </p>
-              {alert.suggested_selling_price === null && !alert.supplier_price_watches?.confirmed_currency && canManage && (
-                <div className="mt-3 rounded border border-rule bg-canvas p-3">
-                  <p className="text-xs text-graph">The portal does not state its currency. Confirm the dealer account currency to enable a CAD suggestion.</p>
-                  {alert.supplier_price_watches && <ConfirmPriceWatchCurrencyForm watchId={alert.supplier_price_watches.id} />}
-                </div>
-              )}
-              {canManage && <PriceAlertDecisionButtons alertId={alert.id} canApprove={alert.suggested_selling_price !== null} />}
-            </article>
-          ))}
-          {!alerts.length && <p className="rounded border border-rule bg-paper p-5 text-sm text-graph">No open price changes. Watches are listed below.</p>}
+          {increases.map((alert) => <AlertCard key={alert.id} alert={alert} canManage={canManage} />)}
+          {!increases.length && <p className="rounded-[4px] border border-rule bg-paper p-4 text-sm text-graph">No supplier price increases detected yet.</p>}
         </div>
       </section>
-      <section>
-        <h3 className="font-display text-xl text-ink">Watched stock <span className="font-mono text-sm text-graph">{watches.length}</span></h3>
-        <p className="mt-1 text-xs text-graph">Add a watch from an inventory item page. Only exact dealer part/code matches are accepted.</p>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+
+      <section aria-labelledby="initial-reviews-heading">
+        <div className="flex items-baseline gap-2">
+          <h3 id="initial-reviews-heading" className="font-display text-xl text-ink">Initial price reviews</h3>
+          <span className="font-mono text-xs text-graph">{firstReviews.length}</span>
+        </div>
+        <p className="mt-1 text-xs text-graph">First comparison with CAD supplier SRP, not a newly increased supplier price.</p>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {firstReviews.map((alert) => <AlertCard key={alert.id} alert={alert} canManage={canManage} />)}
+          {!firstReviews.length && <p className="rounded-[4px] border border-rule bg-paper p-4 text-sm text-graph lg:col-span-2">No initial price reviews pending.</p>}
+        </div>
+      </section>
+
+      <details className="rounded-[4px] border border-rule bg-paper p-4 md:p-5">
+        <summary className="cursor-pointer select-none font-display text-lg text-ink marker:text-graph">Monitored stock · {watches.length} items</summary>
+        <p className="mt-2 text-xs text-graph">Exact supplier part-code matches. Open an item to change or add its watch.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
           {watches.map((watch) => (
-            <article key={watch.id} className="rounded border border-rule bg-paper p-4">
-              <Link href={`/inventory/items/${watch.inventory_items?.id}`} className="font-medium text-ink hover:text-weld-text">
-                {watch.inventory_items?.name ?? "Stock item"} →
-              </Link>
-              <p className="mt-1 font-mono text-xs text-graph">{watch.inventory_items?.sku} · {watch.supplier_code === "marinepartssupply" ? "Marine Parts Supply" : "Western Marine"} {watch.query_part_number}</p>
-              <p className="mt-2 text-xs text-graph">Last Net {money(watch.last_dealer_cost, watch.last_currency)} · SRP {money(watch.last_list_price, watch.last_currency)}</p>
-              <p className="mt-1 text-xs text-graph">Checked {watch.last_checked_at ? new Date(watch.last_checked_at).toLocaleString("en-CA") : "not yet"}</p>
+            <article key={watch.id} className="rounded-[4px] border border-rule bg-bone p-3">
+              {watch.inventory_items ? <Link href={`/inventory/items/${watch.inventory_items.id}`} className="font-medium text-ink hover:text-weld-text">{watch.inventory_items.name} ↗</Link> : <span className="font-medium text-ink">Stock item</span>}
+              <p className="mt-1 font-mono text-[11px] text-graph">{watch.inventory_items?.sku} · {supplierName(watch.supplier_code)} {watch.query_part_number}</p>
+              <p className="mt-2 text-xs text-graph">Net {money(watch.last_dealer_cost, watch.last_currency)} · SRP {money(watch.last_list_price, watch.last_currency)}</p>
+              <p className="mt-1 text-xs text-graph">Checked {date(watch.last_checked_at)}</p>
               {watch.last_error && <p role="alert" className="mt-2 text-xs text-weld-text">Check failed: {watch.last_error}</p>}
               {canManage && <div className="mt-3"><CheckSupplierPriceWatchButton watchId={watch.id} /></div>}
               {canManage && !watch.confirmed_currency && <ConfirmPriceWatchCurrencyForm watchId={watch.id} />}
             </article>
           ))}
         </div>
-      </section>
+      </details>
+
+      <details className="rounded-[4px] border border-rule bg-paper p-4 md:p-5">
+        <summary className="cursor-pointer select-none font-display text-lg text-ink marker:text-graph">
+          Dealer account currencies <span className="ml-2 font-sans text-xs text-graph">{(["marinepartssupply", "westernmarine"] as const).map((code) => {
+            const setting = currencies.find((row) => row.supplier_code === code);
+            return `${code === "marinepartssupply" ? "MPS" : "Western Marine"} ${setting?.currency ?? "unconfirmed"}`;
+          }).join(" · ")}</span>
+        </summary>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {(["marinepartssupply", "westernmarine"] as const).map((supplierCode) => {
+            const setting = currencies.find((row) => row.supplier_code === supplierCode);
+            return <div key={supplierCode} className="rounded-[4px] border border-rule bg-bone p-4">
+              <h3 className="font-medium text-ink">{supplierName(supplierCode)}</h3>
+              <p className="mt-1 text-xs text-graph">{setting ? `${setting.currency} confirmed ${date(setting.confirmed_at)}` : "Not confirmed. CAD proposals are withheld."}</p>
+              {!setting && canManage && <ConfirmSupplierAccountCurrencyForm supplierCode={supplierCode} />}
+            </div>;
+          })}
+        </div>
+      </details>
     </main>
   );
 }
